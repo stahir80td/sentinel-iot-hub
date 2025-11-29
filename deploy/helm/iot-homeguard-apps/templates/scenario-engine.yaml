@@ -1,0 +1,78 @@
+{{- if .Values.scenarioEngine.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.global.namePrefix }}-scenario-engine
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-scenario-engine
+spec:
+  replicas: {{ .Values.scenarioEngine.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.global.namePrefix }}-scenario-engine
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.global.namePrefix }}-scenario-engine
+    spec:
+      containers:
+        - name: scenario-engine
+          {{- if .Values.imageRegistry.registry }}
+          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}/{{ .Values.scenarioEngine.image }}:{{ .Values.scenarioEngine.tag }}"
+          {{- else }}
+          image: "{{ .Values.imageRegistry.prefix }}/{{ .Values.scenarioEngine.image }}:{{ .Values.scenarioEngine.tag }}"
+          {{- end }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.scenarioEngine.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.scenarioEngine.port | quote }}
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: REDIS_URL
+            - name: DEVICE_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: DEVICE_SERVICE_URL
+            - name: NOTIFICATION_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: NOTIFICATION_SERVICE_URL
+          resources:
+            {{- toYaml .Values.scenarioEngine.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.scenarioEngine.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.scenarioEngine.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.global.namePrefix }}-scenario-engine
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-scenario-engine
+spec:
+  selector:
+    app: {{ .Values.global.namePrefix }}-scenario-engine
+  ports:
+    - port: 8080
+      targetPort: {{ .Values.scenarioEngine.port }}
+      name: http
+{{- end }}

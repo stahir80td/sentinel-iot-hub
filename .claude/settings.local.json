@@ -11,7 +11,19 @@
       "Bash(kubectl scale:*)",
       "Bash(powershell -ExecutionPolicy Bypass -File deploy.ps1)",
       "Bash(git init:*)",
-      "Bash(git remote add:*)"
+      "Bash(git remote add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(helm list:*)",
+      "Bash(helm get values:*)",
+      "Bash(dir /b /s C:agentsiotdeployhelm)",
+      "Bash(kubectl exec:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -File smoke-test-local.ps1)",
+      "Bash(git -C \"C:/agents/iot\" status --short)",
+      "Bash(git -C \"C:/agents/iot\" remote -v)",
+      "Bash(git add:*)",
+      "Bash(del nul)"
     ],
     "deny": [],
     "ask": []

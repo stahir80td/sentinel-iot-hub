@@ -1,12 +1,11 @@
 {{- if .Values.deviceIngest.enabled }}
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.global.namePrefix }}-device-ingest
   namespace: {{ .Values.global.namespace }}
   labels:
-    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
     app: {{ .Values.global.namePrefix }}-device-ingest
 spec:
   replicas: {{ .Values.deviceIngest.replicas }}
@@ -17,41 +16,44 @@ spec:
     metadata:
       labels:
         app: {{ .Values.global.namePrefix }}-device-ingest
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
-        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: device-ingest
-          image: {{ .Values.deviceIngest.image }}
+          {{- if .Values.imageRegistry.registry }}
+          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}/{{ .Values.deviceIngest.image }}:{{ .Values.deviceIngest.tag }}"
+          {{- else }}
+          image: "{{ .Values.imageRegistry.prefix }}/{{ .Values.deviceIngest.image }}:{{ .Values.deviceIngest.tag }}"
+          {{- end }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           ports:
-            - containerPort: 8080
+            - containerPort: {{ .Values.deviceIngest.port }}
           env:
             - name: PORT
-              value: "8080"
+              value: {{ .Values.deviceIngest.port | quote }}
             - name: KAFKA_BROKERS
-              value: "{{ .Values.global.namePrefix }}-kafka.{{ .Values.global.namespace }}:9092"
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: KAFKA_BROKERS
             - name: DEVICE_SERVICE_URL
-              value: "http://{{ .Values.global.namePrefix }}-device-service.{{ .Values.global.namespace }}:8080"
-          envFrom:
-            - configMapRef:
-                name: {{ .Values.global.namePrefix }}-config
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: DEVICE_SERVICE_URL
           resources:
             {{- toYaml .Values.deviceIngest.resources | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /health
-              port: 8080
-            initialDelaySeconds: 10
-            periodSeconds: 10
+              port: {{ .Values.deviceIngest.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 15
           readinessProbe:
             httpGet:
               path: /health
-              port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 5
+              port: {{ .Values.deviceIngest.port }}
+            initialDelaySeconds: 20
+            periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
@@ -59,12 +61,13 @@ metadata:
   name: {{ .Values.global.namePrefix }}-device-ingest
   namespace: {{ .Values.global.namespace }}
   labels:
-    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
     app: {{ .Values.global.namePrefix }}-device-ingest
 spec:
   selector:
     app: {{ .Values.global.namePrefix }}-device-ingest
   ports:
     - port: 8080
-      targetPort: 8080
+      targetPort: {{ .Values.deviceIngest.port }}
+      name: http
 {{- end }}

@@ -1,0 +1,72 @@
+{{- if .Values.deviceService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.global.namePrefix }}-device-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-device-service
+spec:
+  replicas: {{ .Values.deviceService.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.global.namePrefix }}-device-service
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.global.namePrefix }}-device-service
+    spec:
+      containers:
+        - name: device-service
+          {{- if .Values.imageRegistry.registry }}
+          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}/{{ .Values.deviceService.image }}:{{ .Values.deviceService.tag }}"
+          {{- else }}
+          image: "{{ .Values.imageRegistry.prefix }}/{{ .Values.deviceService.image }}:{{ .Values.deviceService.tag }}"
+          {{- end }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.deviceService.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.deviceService.port | quote }}
+            - name: MONGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-secrets
+                  key: MONGO_PASSWORD
+            - name: MONGO_URL
+              value: "mongodb://{{ .Values.global.infrastructure.mongodb.username }}:$(MONGO_PASSWORD)@{{ .Values.global.infrastructure.mongodb.host }}.{{ .Values.global.namespace }}:{{ .Values.global.infrastructure.mongodb.port }}/{{ .Values.global.infrastructure.mongodb.database }}?authSource=admin"
+            - name: MONGO_DB
+              value: {{ .Values.global.infrastructure.mongodb.database | quote }}
+          resources:
+            {{- toYaml .Values.deviceService.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.deviceService.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.deviceService.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.global.namePrefix }}-device-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-device-service
+spec:
+  selector:
+    app: {{ .Values.global.namePrefix }}-device-service
+  ports:
+    - port: 8080
+      targetPort: {{ .Values.deviceService.port }}
+      name: http
+{{- end }}

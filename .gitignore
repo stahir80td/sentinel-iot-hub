@@ -154,3 +154,13 @@ data/
 *.db
 *.sqlite
 *.sqlite3
+
+# -----------------
+# Claude Code
+# -----------------
+.claude/
+
+# -----------------
+# Project Documents
+# -----------------
+iot-polyglot-project-requirements-v2.md.pdf

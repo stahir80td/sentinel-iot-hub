@@ -1,0 +1,197 @@
+# Default values for iot-homeguard-apps
+# This is a YAML-formatted file.
+
+global:
+  namePrefix: "iot"
+  namespace: "sandbox"
+  imagePullPolicy: IfNotPresent
+
+  # Environment configuration
+  environment:
+    name: "local"
+    baseDomain: "homeguard.localhost"
+
+    # Public URLs for frontend configuration
+    publicUrls:
+      frontend: "http://homeguard.localhost"
+      api: "http://homeguard.localhost/api"
+
+  # Infrastructure service URLs (from infra helm chart)
+  # These should match the naming convention: {namePrefix}-{service}.{namespace}
+  infrastructure:
+    postgresql:
+      host: "iot-postgresql"
+      port: 5432
+      database: "homeguard"
+      username: "postgres"
+    mongodb:
+      host: "iot-mongodb"
+      port: 27017
+      database: "homeguard"
+      username: "root"
+    redis:
+      host: "iot-redis"
+      port: 6379
+    kafka:
+      host: "iot-kafka"
+      port: 9092
+    timescaledb:
+      host: "iot-timescaledb"
+      port: 5432
+      database: "homeguard_analytics"
+    scylladb:
+      host: "iot-scylladb"
+      port: 9042
+
+# Image registry configuration
+imageRegistry:
+  # For local: use local images
+  # For dv1/prod: use artifactory
+  registry: ""
+  prefix: "homeguard"
+
+# Application Services
+apiGateway:
+  enabled: true
+  image: "api-gateway"
+  tag: "latest"
+  replicas: 1
+  port: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  cors:
+    allowedOrigins:
+      - "http://localhost:3000"
+      - "http://homeguard.localhost"
+      - "*"
+
+userService:
+  enabled: true
+  image: "user-service"
+  tag: "latest"
+  replicas: 1
+  port: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+deviceService:
+  enabled: true
+  image: "device-service"
+  tag: "latest"
+  replicas: 1
+  port: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+deviceIngest:
+  enabled: true
+  image: "device-ingest"
+  tag: "latest"
+  replicas: 1
+  port: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+eventProcessor:
+  enabled: true
+  image: "event-processor"
+  tag: "latest"
+  replicas: 1
+  port: 8080
+  kafkaTopics:
+    - "device-events"
+    - "device-alerts"
+    - "device-heartbeats"
+  consumerGroup: "event-processor"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+notificationService:
+  enabled: true
+  image: "notification-service"
+  tag: "latest"
+  replicas: 1
+  port: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+scenarioEngine:
+  enabled: true
+  image: "scenario-engine"
+  tag: "latest"
+  replicas: 1
+  port: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+agenticAi:
+  enabled: true
+  image: "agentic-ai"
+  tag: "latest"
+  replicas: 1
+  port: 8080
+  geminiApiKey: ""
+  geminiModel: "gemini-pro-latest"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+frontend:
+  enabled: true
+  image: "frontend"
+  tag: "latest"
+  replicas: 1
+  port: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Secrets - will be overridden per environment
+secrets:
+  jwtSecret: "homeguard-jwt-secret-change-in-production-2024-very-long-key"
+  postgresPassword: "homeguard-postgres-2024"
+  mongoPassword: "homeguard-mongo-2024"
+  redisPassword: ""

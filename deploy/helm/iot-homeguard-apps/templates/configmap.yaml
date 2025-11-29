@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.global.namePrefix }}-apps-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
+data:
+  # Environment
+  ENVIRONMENT: {{ .Values.global.environment.name | quote }}
+
+  # Service URLs (internal k8s DNS)
+  USER_SERVICE_URL: "http://{{ .Values.global.namePrefix }}-user-service.{{ .Values.global.namespace }}:8080"
+  DEVICE_SERVICE_URL: "http://{{ .Values.global.namePrefix }}-device-service.{{ .Values.global.namespace }}:8080"
+  DEVICE_INGEST_URL: "http://{{ .Values.global.namePrefix }}-device-ingest.{{ .Values.global.namespace }}:8080"
+  NOTIFICATION_SERVICE_URL: "http://{{ .Values.global.namePrefix }}-notification-service.{{ .Values.global.namespace }}:8080"
+  SCENARIO_ENGINE_URL: "http://{{ .Values.global.namePrefix }}-scenario-engine.{{ .Values.global.namespace }}:8080"
+  AGENTIC_AI_URL: "http://{{ .Values.global.namePrefix }}-agentic-ai.{{ .Values.global.namespace }}:8080"
+
+  # Infrastructure URLs
+  KAFKA_BROKERS: "{{ .Values.global.infrastructure.kafka.host }}.{{ .Values.global.namespace }}:{{ .Values.global.infrastructure.kafka.port }}"
+  REDIS_URL: "redis://{{ .Values.global.infrastructure.redis.host }}.{{ .Values.global.namespace }}:{{ .Values.global.infrastructure.redis.port }}"
+  SCYLLA_HOSTS: "{{ .Values.global.infrastructure.scylladb.host }}.{{ .Values.global.namespace }}:{{ .Values.global.infrastructure.scylladb.port }}"
+
+  # Kafka Consumer Config
+  KAFKA_TOPICS: {{ .Values.eventProcessor.kafkaTopics | join "," | quote }}
+  CONSUMER_GROUP: {{ .Values.eventProcessor.consumerGroup | quote }}
+
+  # Public URLs for frontend
+  PUBLIC_API_URL: {{ .Values.global.environment.publicUrls.api | quote }}
+  PUBLIC_FRONTEND_URL: {{ .Values.global.environment.publicUrls.frontend | quote }}
+
+  # AI Configuration
+  GEMINI_TEXT_MODEL: {{ .Values.agenticAi.geminiModel | quote }}

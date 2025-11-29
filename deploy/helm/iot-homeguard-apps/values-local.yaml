@@ -1,0 +1,134 @@
+# Local development environment values for apps
+# Usage: helm install iot-homeguard-apps ./iot-homeguard-apps -f values-local.yaml
+
+global:
+  namePrefix: "iot"
+  namespace: "sandbox"
+  imagePullPolicy: IfNotPresent
+
+  environment:
+    name: "local"
+    baseDomain: "homeguard.localhost"
+
+    publicUrls:
+      frontend: "http://homeguard.localhost"
+      api: "http://homeguard.localhost/api"
+
+  # Infrastructure services (deployed by iot-homeguard infra chart)
+  infrastructure:
+    postgresql:
+      host: "iot-postgresql"
+      port: 5432
+      database: "homeguard"
+      username: "homeguard"
+    mongodb:
+      host: "iot-mongodb"
+      port: 27017
+      database: "homeguard"
+      username: "root"
+    redis:
+      host: "iot-redis"
+      port: 6379
+    kafka:
+      host: "iot-kafka"
+      port: 9092
+    timescaledb:
+      host: "iot-timescaledb"
+      port: 5432
+      database: "homeguard_analytics"
+    scylladb:
+      host: "iot-scylladb"
+      port: 9042
+
+# Local: use local docker images (no registry)
+imageRegistry:
+  registry: ""
+  prefix: "homeguard"
+
+# Minimal resources for local development
+apiGateway:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+userService:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+deviceService:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+deviceIngest:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+eventProcessor:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+notificationService:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+scenarioEngine:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+agenticAi:
+  geminiApiKey: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+frontend:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+secrets:
+  jwtSecret: "homeguard-jwt-secret-change-in-production-2024-very-long-key"
+  postgresPassword: "homeguard-pg-2024"
+  mongoPassword: "homeguard-mongo-2024"

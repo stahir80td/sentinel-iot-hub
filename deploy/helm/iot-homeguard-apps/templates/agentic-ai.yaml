@@ -1,0 +1,85 @@
+{{- if .Values.agenticAi.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.global.namePrefix }}-agentic-ai
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-agentic-ai
+spec:
+  replicas: {{ .Values.agenticAi.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.global.namePrefix }}-agentic-ai
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.global.namePrefix }}-agentic-ai
+    spec:
+      containers:
+        - name: agentic-ai
+          {{- if .Values.imageRegistry.registry }}
+          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}/{{ .Values.agenticAi.image }}:{{ .Values.agenticAi.tag }}"
+          {{- else }}
+          image: "{{ .Values.imageRegistry.prefix }}/{{ .Values.agenticAi.image }}:{{ .Values.agenticAi.tag }}"
+          {{- end }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.agenticAi.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.agenticAi.port | quote }}
+            - name: DEVICE_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: DEVICE_SERVICE_URL
+            - name: NOTIFICATION_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: NOTIFICATION_SERVICE_URL
+            - name: GEMINI_TEXT_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: GEMINI_TEXT_MODEL
+            {{- if .Values.agenticAi.geminiApiKey }}
+            - name: GEMINI_TEXT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-secrets
+                  key: GEMINI_TEXT_API_KEY
+            {{- end }}
+          resources:
+            {{- toYaml .Values.agenticAi.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.agenticAi.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.agenticAi.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.global.namePrefix }}-agentic-ai
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-agentic-ai
+spec:
+  selector:
+    app: {{ .Values.global.namePrefix }}-agentic-ai
+  ports:
+    - port: 8080
+      targetPort: {{ .Values.agenticAi.port }}
+      name: http
+{{- end }}

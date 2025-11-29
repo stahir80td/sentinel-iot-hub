@@ -1,0 +1,83 @@
+{{- if .Values.frontend.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.global.namePrefix }}-frontend-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
+data:
+  config.js: |
+    window.__HOMEGUARD_CONFIG__ = {
+      API_URL: "{{ .Values.global.environment.publicUrls.api }}",
+      WS_URL: "{{ .Values.global.environment.publicUrls.api | replace "http://" "ws://" | replace "https://" "wss://" }}/ws",
+      ENVIRONMENT: "{{ .Values.global.environment.name }}"
+    };
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.global.namePrefix }}-frontend
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-frontend
+spec:
+  replicas: {{ .Values.frontend.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.global.namePrefix }}-frontend
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.global.namePrefix }}-frontend
+    spec:
+      containers:
+        - name: frontend
+          {{- if .Values.imageRegistry.registry }}
+          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}/{{ .Values.frontend.image }}:{{ .Values.frontend.tag }}"
+          {{- else }}
+          image: "{{ .Values.imageRegistry.prefix }}/{{ .Values.frontend.image }}:{{ .Values.frontend.tag }}"
+          {{- end }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.frontend.port }}
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/nginx/html/config.js
+              subPath: config.js
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.frontend.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.frontend.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Values.global.namePrefix }}-frontend-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.global.namePrefix }}-frontend
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-frontend
+spec:
+  selector:
+    app: {{ .Values.global.namePrefix }}-frontend
+  ports:
+    - port: 80
+      targetPort: {{ .Values.frontend.port }}
+      name: http
+{{- end }}

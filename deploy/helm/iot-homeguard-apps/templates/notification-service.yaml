@@ -1,12 +1,11 @@
 {{- if .Values.notificationService.enabled }}
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.global.namePrefix }}-notification-service
   namespace: {{ .Values.global.namespace }}
   labels:
-    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
     app: {{ .Values.global.namePrefix }}-notification-service
 spec:
   replicas: {{ .Values.notificationService.replicas }}
@@ -17,48 +16,39 @@ spec:
     metadata:
       labels:
         app: {{ .Values.global.namePrefix }}-notification-service
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
-        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: notification-service
-          image: {{ .Values.notificationService.image }}
+          {{- if .Values.imageRegistry.registry }}
+          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}/{{ .Values.notificationService.image }}:{{ .Values.notificationService.tag }}"
+          {{- else }}
+          image: "{{ .Values.imageRegistry.prefix }}/{{ .Values.notificationService.image }}:{{ .Values.notificationService.tag }}"
+          {{- end }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           ports:
-            - containerPort: 8080
+            - containerPort: {{ .Values.notificationService.port }}
           env:
             - name: PORT
-              value: "8080"
-            - name: KAFKA_BROKERS
-              value: "{{ .Values.global.namePrefix }}-kafka.{{ .Values.global.namespace }}:9092"
+              value: {{ .Values.notificationService.port | quote }}
             - name: REDIS_URL
-              value: "redis://{{ .Values.global.namePrefix }}-redis.{{ .Values.global.namespace }}:6379"
-            - name: POSTGRESQL_PASSWORD
               valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.global.namePrefix }}-secrets
-                  key: postgresql-password
-            - name: DATABASE_URL
-              value: "postgresql://{{ .Values.postgresql.auth.username }}:$(POSTGRESQL_PASSWORD)@{{ .Values.global.namePrefix }}-postgresql.{{ .Values.global.namespace }}:5432/{{ .Values.postgresql.auth.database }}?sslmode=disable"
-          envFrom:
-            - configMapRef:
-                name: {{ .Values.global.namePrefix }}-config
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: REDIS_URL
           resources:
             {{- toYaml .Values.notificationService.resources | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /health
-              port: 8080
+              port: {{ .Values.notificationService.port }}
             initialDelaySeconds: 10
-            periodSeconds: 10
+            periodSeconds: 15
           readinessProbe:
             httpGet:
               path: /health
-              port: 8080
+              port: {{ .Values.notificationService.port }}
             initialDelaySeconds: 5
-            periodSeconds: 5
+            periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
@@ -66,12 +56,13 @@ metadata:
   name: {{ .Values.global.namePrefix }}-notification-service
   namespace: {{ .Values.global.namespace }}
   labels:
-    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
     app: {{ .Values.global.namePrefix }}-notification-service
 spec:
   selector:
     app: {{ .Values.global.namePrefix }}-notification-service
   ports:
     - port: 8080
-      targetPort: 8080
+      targetPort: {{ .Values.notificationService.port }}
+      name: http
 {{- end }}

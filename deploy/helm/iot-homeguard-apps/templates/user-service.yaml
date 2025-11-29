@@ -1,0 +1,75 @@
+{{- if .Values.userService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.global.namePrefix }}-user-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-user-service
+spec:
+  replicas: {{ .Values.userService.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.global.namePrefix }}-user-service
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.global.namePrefix }}-user-service
+    spec:
+      containers:
+        - name: user-service
+          {{- if .Values.imageRegistry.registry }}
+          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}/{{ .Values.userService.image }}:{{ .Values.userService.tag }}"
+          {{- else }}
+          image: "{{ .Values.imageRegistry.prefix }}/{{ .Values.userService.image }}:{{ .Values.userService.tag }}"
+          {{- end }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.userService.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.userService.port | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_URL
+              value: "postgresql://{{ .Values.global.infrastructure.postgresql.username }}:$(POSTGRES_PASSWORD)@{{ .Values.global.infrastructure.postgresql.host }}.{{ .Values.global.namespace }}:{{ .Values.global.infrastructure.postgresql.port }}/{{ .Values.global.infrastructure.postgresql.database }}?sslmode=disable"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-secrets
+                  key: JWT_SECRET
+          resources:
+            {{- toYaml .Values.userService.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.userService.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.userService.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.global.namePrefix }}-user-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-user-service
+spec:
+  selector:
+    app: {{ .Values.global.namePrefix }}-user-service
+  ports:
+    - port: 8080
+      targetPort: {{ .Values.userService.port }}
+      name: http
+{{- end }}

@@ -1,0 +1,144 @@
+# DV1 environment values for apps
+# Usage: helm install iot-homeguard-apps ./iot-homeguard-apps -f values-dv1.yaml
+
+global:
+  namePrefix: "iot"
+  namespace: "sandbox"
+  imagePullPolicy: Always
+
+  environment:
+    name: "dv1"
+    baseDomain: "homeguard.dv1.example.com"
+
+    publicUrls:
+      frontend: "https://homeguard.dv1.example.com"
+      api: "https://homeguard.dv1.example.com/api"
+
+  # Infrastructure services (deployed by iot-homeguard infra chart)
+  infrastructure:
+    postgresql:
+      host: "iot-postgresql"
+      port: 5432
+      database: "homeguard"
+      username: "homeguard"
+    mongodb:
+      host: "iot-mongodb"
+      port: 27017
+      database: "homeguard"
+      username: "root"
+    redis:
+      host: "iot-redis"
+      port: 6379
+    kafka:
+      host: "iot-kafka"
+      port: 9092
+    timescaledb:
+      host: "iot-timescaledb"
+      port: 5432
+      database: "homeguard_analytics"
+    scylladb:
+      host: "iot-scylladb"
+      port: 9042
+
+# DV1: use artifactory for images
+imageRegistry:
+  registry: "artifactory.example.com/docker"
+  prefix: "homeguard"
+
+# DV1 resources (slightly higher than local)
+apiGateway:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+userService:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+deviceService:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+deviceIngest:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+eventProcessor:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+notificationService:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+scenarioEngine:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+agenticAi:
+  replicas: 1
+  geminiApiKey: ""  # Set via --set or external secret
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+
+frontend:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Secrets - should be managed via external secrets in dv1
+secrets:
+  jwtSecret: ""  # Set via --set or external secret
+  postgresPassword: ""  # Set via --set or external secret
+  mongoPassword: ""  # Set via --set or external secret

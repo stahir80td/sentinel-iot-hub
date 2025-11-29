@@ -1,0 +1,100 @@
+{{- if .Values.eventProcessor.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.global.namePrefix }}-event-processor
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-event-processor
+spec:
+  replicas: {{ .Values.eventProcessor.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.global.namePrefix }}-event-processor
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.global.namePrefix }}-event-processor
+    spec:
+      containers:
+        - name: event-processor
+          {{- if .Values.imageRegistry.registry }}
+          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}/{{ .Values.eventProcessor.image }}:{{ .Values.eventProcessor.tag }}"
+          {{- else }}
+          image: "{{ .Values.imageRegistry.prefix }}/{{ .Values.eventProcessor.image }}:{{ .Values.eventProcessor.tag }}"
+          {{- end }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.eventProcessor.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.eventProcessor.port | quote }}
+            - name: KAFKA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: KAFKA_BROKERS
+            - name: KAFKA_TOPICS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: KAFKA_TOPICS
+            - name: CONSUMER_GROUP
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: CONSUMER_GROUP
+            - name: NOTIFICATION_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: NOTIFICATION_SERVICE_URL
+            - name: SCENARIO_ENGINE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: SCENARIO_ENGINE_URL
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-secrets
+                  key: POSTGRES_PASSWORD
+            - name: TIMESCALEDB_URL
+              value: "postgres://homeguard:$(POSTGRES_PASSWORD)@{{ .Values.global.infrastructure.timescaledb.host }}.{{ .Values.global.namespace }}:{{ .Values.global.infrastructure.timescaledb.port }}/{{ .Values.global.infrastructure.timescaledb.database }}?sslmode=disable"
+            - name: SCYLLA_HOSTS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: SCYLLA_HOSTS
+          resources:
+            {{- toYaml .Values.eventProcessor.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.eventProcessor.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: {{ .Values.eventProcessor.port }}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.global.namePrefix }}-event-processor
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard-apps.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-event-processor
+spec:
+  selector:
+    app: {{ .Values.global.namePrefix }}-event-processor
+  ports:
+    - port: 8080
+      targetPort: {{ .Values.eventProcessor.port }}
+      name: http
+{{- end }}
