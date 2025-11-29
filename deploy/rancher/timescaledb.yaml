@@ -1,0 +1,187 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: timescaledb
+  namespace: homeguard-data
+  labels:
+    app: timescaledb
+    component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: timescaledb
+  template:
+    metadata:
+      labels:
+        app: timescaledb
+    spec:
+      containers:
+      - name: timescaledb
+        image: timescale/timescaledb:latest-pg15
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: timescaledb-secret
+              key: password
+        - name: POSTGRES_DB
+          value: "analytics"
+        - name: POSTGRES_USER
+          value: "postgres"
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: timescaledb-pvc
+      - name: init-scripts
+        configMap:
+          name: timescaledb-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: timescaledb
+  namespace: homeguard-data
+  labels:
+    app: timescaledb
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: 5432
+    name: postgres
+  selector:
+    app: timescaledb
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: timescaledb-pvc
+  namespace: homeguard-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: timescaledb-secret
+  namespace: homeguard-data
+type: Opaque
+stringData:
+  password: "homeguard-timescale-2024"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: timescaledb-init
+  namespace: homeguard-data
+data:
+  01-init.sql: |
+    -- Enable TimescaleDB extension
+    CREATE EXTENSION IF NOT EXISTS timescaledb;
+
+    -- Sensor readings hypertable
+    CREATE TABLE IF NOT EXISTS sensor_readings (
+        time TIMESTAMPTZ NOT NULL,
+        device_id UUID NOT NULL,
+        user_id UUID NOT NULL,
+        reading_type VARCHAR(50) NOT NULL,
+        value DOUBLE PRECISION NOT NULL,
+        unit VARCHAR(20)
+    );
+
+    -- Convert to hypertable
+    SELECT create_hypertable('sensor_readings', 'time', if_not_exists => TRUE);
+
+    -- Create indexes
+    CREATE INDEX IF NOT EXISTS idx_sensor_device ON sensor_readings (device_id, time DESC);
+    CREATE INDEX IF NOT EXISTS idx_sensor_user ON sensor_readings (user_id, time DESC);
+    CREATE INDEX IF NOT EXISTS idx_sensor_type ON sensor_readings (reading_type, time DESC);
+
+    -- Continuous aggregate for hourly events
+    CREATE MATERIALIZED VIEW IF NOT EXISTS hourly_events
+    WITH (timescaledb.continuous) AS
+    SELECT
+        time_bucket('1 hour', time) AS bucket,
+        device_id,
+        reading_type,
+        COUNT(*) as event_count,
+        AVG(value) as avg_value,
+        MIN(value) as min_value,
+        MAX(value) as max_value
+    FROM sensor_readings
+    GROUP BY bucket, device_id, reading_type
+    WITH NO DATA;
+
+    -- Daily aggregate
+    CREATE MATERIALIZED VIEW IF NOT EXISTS daily_events
+    WITH (timescaledb.continuous) AS
+    SELECT
+        time_bucket('1 day', time) AS bucket,
+        device_id,
+        reading_type,
+        COUNT(*) as event_count,
+        AVG(value) as avg_value
+    FROM sensor_readings
+    GROUP BY bucket, device_id, reading_type
+    WITH NO DATA;
+
+    -- Enable compression on older data
+    ALTER TABLE sensor_readings SET (
+        timescaledb.compress,
+        timescaledb.compress_segmentby = 'device_id'
+    );
+
+    -- Add compression policy (compress data older than 7 days)
+    SELECT add_compression_policy('sensor_readings', INTERVAL '7 days', if_not_exists => TRUE);
+
+    -- Add retention policy (drop data older than 90 days)
+    SELECT add_retention_policy('sensor_readings', INTERVAL '90 days', if_not_exists => TRUE);
+
+    -- Refresh policies for continuous aggregates
+    SELECT add_continuous_aggregate_policy('hourly_events',
+        start_offset => INTERVAL '3 hours',
+        end_offset => INTERVAL '1 hour',
+        schedule_interval => INTERVAL '1 hour',
+        if_not_exists => TRUE);
+
+    SELECT add_continuous_aggregate_policy('daily_events',
+        start_offset => INTERVAL '3 days',
+        end_offset => INTERVAL '1 day',
+        schedule_interval => INTERVAL '1 day',
+        if_not_exists => TRUE);

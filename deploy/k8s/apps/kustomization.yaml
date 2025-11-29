@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: homeguard-apps
+
+resources:
+  - secrets.yaml
+  - api-gateway.yaml
+  - user-service.yaml
+  - device-service.yaml
+  - device-ingest.yaml
+  - event-processor.yaml
+  - notification-service.yaml
+  - scenario-engine.yaml
+  - agentic-ai.yaml
+  - frontend.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: homeguard
+  app.kubernetes.io/managed-by: kustomize

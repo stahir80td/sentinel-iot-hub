@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(kubectl get:*)",
+      "Bash(kubectl logs:*)",
+      "Bash(kubectl delete:*)",
+      "Bash(helm upgrade:*)",
+      "Bash(kubectl describe:*)",
+      "Bash(helm uninstall:*)",
+      "Bash(helm install:*)",
+      "Bash(kubectl scale:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -File deploy.ps1)",
+      "Bash(git init:*)",
+      "Bash(git remote add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

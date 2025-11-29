@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.global.namePrefix }}-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+data:
+  # Environment
+  ENVIRONMENT: {{ .Values.global.environment.name | quote }}
+
+  # Public URLs (for frontend, emails, webhooks, etc.)
+  PUBLIC_FRONTEND_URL: {{ .Values.global.environment.publicUrls.frontend | quote }}
+  PUBLIC_API_URL: {{ .Values.global.environment.publicUrls.api | quote }}
+  PUBLIC_GRAFANA_URL: {{ .Values.global.environment.publicUrls.grafana | quote }}
+
+  # Internal service URLs (for inter-service communication within cluster)
+  USER_SERVICE_URL: "http://{{ .Values.global.namePrefix }}-user-service.{{ .Values.global.namespace }}:8080"
+  DEVICE_SERVICE_URL: "http://{{ .Values.global.namePrefix }}-device-service.{{ .Values.global.namespace }}:8080"
+  DEVICE_INGEST_URL: "http://{{ .Values.global.namePrefix }}-device-ingest.{{ .Values.global.namespace }}:8080"
+  NOTIFICATION_SERVICE_URL: "http://{{ .Values.global.namePrefix }}-notification-service.{{ .Values.global.namespace }}:8080"
+  ANALYTICS_SERVICE_URL: "http://{{ .Values.global.namePrefix }}-analytics-service.{{ .Values.global.namespace }}:8080"
+  AGENTIC_AI_URL: "http://{{ .Values.global.namePrefix }}-agentic-ai.{{ .Values.global.namespace }}:8080"
+  SCENARIO_ENGINE_URL: "http://{{ .Values.global.namePrefix }}-scenario-engine.{{ .Values.global.namespace }}:8080"
+  API_GATEWAY_URL: "http://{{ .Values.global.namePrefix }}-api-gateway.{{ .Values.global.namespace }}:8080"
+
+  # Database connection strings
+  POSTGRESQL_HOST: "{{ .Values.global.namePrefix }}-postgresql.{{ .Values.global.namespace }}"
+  POSTGRESQL_PORT: "5432"
+  POSTGRESQL_DATABASE: {{ .Values.postgresql.auth.database | quote }}
+  POSTGRESQL_USER: {{ .Values.postgresql.auth.username | quote }}
+
+  MONGODB_HOST: "{{ .Values.global.namePrefix }}-mongodb.{{ .Values.global.namespace }}"
+  MONGODB_PORT: "27017"
+  MONGODB_DATABASE: {{ .Values.mongodb.auth.database | quote }}
+
+  REDIS_HOST: "{{ .Values.global.namePrefix }}-redis.{{ .Values.global.namespace }}"
+  REDIS_PORT: "6379"
+
+  TIMESCALEDB_HOST: "{{ .Values.global.namePrefix }}-timescaledb.{{ .Values.global.namespace }}"
+  TIMESCALEDB_PORT: "5432"
+  TIMESCALEDB_DATABASE: {{ .Values.timescaledb.auth.database | quote }}
+
+  SCYLLADB_HOSTS: "{{ .Values.global.namePrefix }}-scylladb.{{ .Values.global.namespace }}:9042"
+
+  # Kafka
+  KAFKA_BROKERS: "{{ .Values.global.namePrefix }}-kafka.{{ .Values.global.namespace }}:9092"
+
+  # Full connection URIs (for services that need them)
+  POSTGRESQL_URI: "postgresql://{{ .Values.postgresql.auth.username }}:$(POSTGRESQL_PASSWORD)@{{ .Values.global.namePrefix }}-postgresql.{{ .Values.global.namespace }}:5432/{{ .Values.postgresql.auth.database }}?sslmode=disable"
+  MONGODB_URI: "mongodb://{{ .Values.mongodb.auth.rootUsername }}:$(MONGODB_PASSWORD)@{{ .Values.global.namePrefix }}-mongodb.{{ .Values.global.namespace }}:27017/{{ .Values.mongodb.auth.database }}?authSource=admin"
+  REDIS_URL: "redis://{{ .Values.global.namePrefix }}-redis.{{ .Values.global.namespace }}:6379"
+  TIMESCALEDB_URI: "postgresql://{{ .Values.timescaledb.auth.username }}:$(TIMESCALEDB_PASSWORD)@{{ .Values.global.namePrefix }}-timescaledb.{{ .Values.global.namespace }}:5432/{{ .Values.timescaledb.auth.database }}?sslmode=disable"
+
+  # Monitoring
+  PROMETHEUS_URL: "http://{{ .Values.global.namePrefix }}-prometheus.{{ .Values.global.namespace }}:9090"
+  GRAFANA_URL: "http://{{ .Values.global.namePrefix }}-grafana.{{ .Values.global.namespace }}:3000"

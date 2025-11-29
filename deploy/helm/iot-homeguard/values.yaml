@@ -1,0 +1,357 @@
+# Global configuration
+global:
+  # Prefix for all resources
+  namePrefix: "iot"
+  # Namespace (will be created if doesn't exist)
+  namespace: "sandbox"
+  # Image pull policy
+  imagePullPolicy: IfNotPresent
+
+  # Environment configuration - customize per deployment target
+  environment:
+    name: "local"  # local, staging, production
+
+    # Base domain for all services
+    # For local: homeguard.localhost
+    # For cloud: yourdomain.com
+    baseDomain: "homeguard.localhost"
+
+    # TLS configuration
+    tls:
+      enabled: false
+      # For production, set to your cert-manager issuer
+      issuerName: ""
+      issuerKind: "ClusterIssuer"
+
+    # Public-facing URLs (used by frontend, emails, etc.)
+    # These are the URLs users will access
+    publicUrls:
+      frontend: "http://homeguard.localhost"
+      api: "http://homeguard.localhost/api"
+      grafana: "http://grafana.homeguard.localhost"
+      n8n: "http://n8n.homeguard.localhost"
+      prometheus: "http://prometheus.homeguard.localhost"
+
+# =============================================================================
+# INFRASTRUCTURE - Databases & Messaging
+# =============================================================================
+
+# PostgreSQL - User data
+postgresql:
+  enabled: true
+  image: postgres:15-alpine
+  auth:
+    database: homeguard
+    username: homeguard
+    password: homeguard-pg-2024
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  storage:
+    size: 1Gi
+
+# MongoDB - Device data
+mongodb:
+  enabled: true
+  image: mongo:7
+  auth:
+    rootUsername: root
+    rootPassword: homeguard-mongo-2024
+    database: homeguard
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  storage:
+    size: 1Gi
+
+# Redis - Caching
+redis:
+  enabled: true
+  image: redis:7-alpine
+  auth:
+    enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  storage:
+    size: 512Mi
+
+# TimescaleDB - Time-series analytics
+timescaledb:
+  enabled: true
+  image: timescale/timescaledb:latest-pg15
+  auth:
+    database: homeguard_analytics
+    username: homeguard
+    password: homeguard-ts-2024
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  storage:
+    size: 1Gi
+
+# ScyllaDB - High-performance event storage
+scylladb:
+  enabled: true
+  image: scylladb/scylla:5.4
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  storage:
+    size: 1Gi
+
+# Kafka - Event streaming (uses Strimzi operator as subchart)
+kafka:
+  enabled: true
+  version: 4.0.0
+  replicas: 1
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  storage:
+    size: 1Gi
+  topics:
+    - name: device-events
+      partitions: 3
+      replicas: 1
+    - name: device-heartbeats
+      partitions: 3
+      replicas: 1
+    - name: device-alerts
+      partitions: 3
+      replicas: 1
+    - name: notifications
+      partitions: 3
+      replicas: 1
+    - name: analytics-events
+      partitions: 3
+      replicas: 1
+
+# =============================================================================
+# MONITORING
+# =============================================================================
+
+# Prometheus - Metrics collection
+prometheus:
+  enabled: true
+  image: prom/prometheus:latest
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  storage:
+    size: 2Gi
+  retention: 15d
+
+# Grafana - Dashboards
+grafana:
+  enabled: true
+  image: grafana/grafana:latest
+  auth:
+    adminUser: admin
+    adminPassword: homeguard-grafana-2024
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  storage:
+    size: 1Gi
+
+# n8n - Workflow automation
+n8n:
+  enabled: true
+  image: n8nio/n8n:latest
+  auth:
+    username: admin
+    password: homeguard-n8n-2024
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  storage:
+    size: 1Gi
+
+# =============================================================================
+# APPLICATIONS - Microservices
+# =============================================================================
+
+# Frontend - React application
+frontend:
+  enabled: true
+  image: homeguard/frontend:latest
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# API Gateway - Entry point for all API requests
+apiGateway:
+  enabled: true
+  image: homeguard/api-gateway:latest
+  replicas: 1
+  jwtSecret: "homeguard-jwt-secret-change-in-production-2024-very-long-key"
+  rateLimitPerMinute: 100
+  rateLimitBurst: 20
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# User Service - Authentication and user management
+userService:
+  enabled: true
+  image: homeguard/user-service:latest
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Device Service - Device management
+deviceService:
+  enabled: true
+  image: homeguard/device-service:latest
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Device Ingest - IoT data ingestion
+deviceIngest:
+  enabled: true
+  image: homeguard/device-ingest:latest
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Event Processor - Kafka event processing
+eventProcessor:
+  enabled: true
+  image: homeguard/event-processor:latest
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Notification Service - Push notifications
+notificationService:
+  enabled: true
+  image: homeguard/notification-service:latest
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Scenario Engine - Automation rules
+scenarioEngine:
+  enabled: true
+  image: homeguard/scenario-engine:latest
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Agentic AI - AI assistant with Gemini
+agenticAi:
+  enabled: true
+  image: homeguard/agentic-ai:latest
+  replicas: 1
+  geminiApiKey: ""  # Set via --set or secrets
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# =============================================================================
+# INGRESS
+# =============================================================================
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations: {}
+  # For production with TLS, add:
+  # cert-manager.io/cluster-issuer: letsencrypt-prod
+
+  # Hosts are auto-generated from global.environment.baseDomain
+  # You can override specific hosts if needed
+  hosts: {}
+  #   frontend: custom-frontend.example.com
+  #   api: api.example.com
+
+# =============================================================================
+# SECRETS
+# =============================================================================
+
+secrets:
+  # JWT secret for API authentication
+  jwtSecret: "homeguard-jwt-secret-change-in-production-2024-very-long-key"
+  # Gemini API key (leave empty and set via --set agenticAi.geminiApiKey=xxx)
+  geminiApiKey: ""

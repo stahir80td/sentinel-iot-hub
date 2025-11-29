@@ -1,0 +1,219 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scylladb
+  namespace: homeguard-data
+  labels:
+    app: scylladb
+    component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scylladb
+  template:
+    metadata:
+      labels:
+        app: scylladb
+    spec:
+      containers:
+      - name: scylladb
+        image: scylladb/scylla:5.4
+        ports:
+        - containerPort: 9042
+          name: cql
+        - containerPort: 9160
+          name: thrift
+        - containerPort: 7000
+          name: intra-node
+        - containerPort: 7001
+          name: tls-intra-node
+        - containerPort: 7199
+          name: jmx
+        - containerPort: 10000
+          name: rest
+        args:
+        - --smp=1
+        - --memory=384M
+        - --overprovisioned=1
+        - --developer-mode=1
+        - --api-address=0.0.0.0
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/scylla
+        resources:
+          requests:
+            cpu: 200m
+            memory: 384Mi
+          limits:
+            cpu: 1000m
+            memory: 768Mi
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "nodetool status | grep -E '^UN'"
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "cqlsh -e 'SELECT now() FROM system.local'"
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: scylladb-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scylladb
+  namespace: homeguard-data
+  labels:
+    app: scylladb
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9042
+    targetPort: 9042
+    name: cql
+  - port: 9160
+    targetPort: 9160
+    name: thrift
+  - port: 10000
+    targetPort: 10000
+    name: rest
+  selector:
+    app: scylladb
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: scylladb-pvc
+  namespace: homeguard-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Job to initialize ScyllaDB schema after deployment
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: scylladb-init
+  namespace: homeguard-data
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+      - name: wait-for-scylla
+        image: scylladb/scylla:5.4
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Waiting for ScyllaDB to be ready..."
+          until cqlsh scylladb 9042 -e "SELECT now() FROM system.local" 2>/dev/null; do
+            echo "ScyllaDB not ready yet, waiting..."
+            sleep 10
+          done
+          echo "ScyllaDB is ready!"
+      containers:
+      - name: init-schema
+        image: scylladb/scylla:5.4
+        command:
+        - /bin/sh
+        - -c
+        - |
+          cqlsh scylladb 9042 << 'EOF'
+
+          -- Create keyspace
+          CREATE KEYSPACE IF NOT EXISTS iot_events WITH replication = {
+              'class': 'SimpleStrategy',
+              'replication_factor': 1
+          };
+
+          USE iot_events;
+
+          -- Events by device (for device history queries)
+          CREATE TABLE IF NOT EXISTS events_by_device (
+              device_id UUID,
+              event_date DATE,
+              event_time TIMESTAMP,
+              event_id UUID,
+              event_type TEXT,
+              user_id UUID,
+              payload TEXT,
+              PRIMARY KEY ((device_id, event_date), event_time, event_id)
+          ) WITH CLUSTERING ORDER BY (event_time DESC, event_id ASC)
+            AND compaction = {'class': 'TimeWindowCompactionStrategy', 'compaction_window_size': '1', 'compaction_window_unit': 'DAYS'}
+            AND default_time_to_live = 7776000;  -- 90 days TTL
+
+          -- Events by user (for user's event feed)
+          CREATE TABLE IF NOT EXISTS events_by_user (
+              user_id UUID,
+              event_date DATE,
+              event_time TIMESTAMP,
+              event_id UUID,
+              device_id UUID,
+              event_type TEXT,
+              payload TEXT,
+              PRIMARY KEY ((user_id, event_date), event_time, event_id)
+          ) WITH CLUSTERING ORDER BY (event_time DESC, event_id ASC)
+            AND compaction = {'class': 'TimeWindowCompactionStrategy', 'compaction_window_size': '1', 'compaction_window_unit': 'DAYS'}
+            AND default_time_to_live = 7776000;
+
+          -- Events by type (for analytics and filtering)
+          CREATE TABLE IF NOT EXISTS events_by_type (
+              event_type TEXT,
+              event_date DATE,
+              event_time TIMESTAMP,
+              event_id UUID,
+              device_id UUID,
+              user_id UUID,
+              payload TEXT,
+              PRIMARY KEY ((event_type, event_date), event_time, event_id)
+          ) WITH CLUSTERING ORDER BY (event_time DESC, event_id ASC)
+            AND compaction = {'class': 'TimeWindowCompactionStrategy', 'compaction_window_size': '1', 'compaction_window_unit': 'DAYS'}
+            AND default_time_to_live = 7776000;
+
+          -- Alerts table (for critical events)
+          CREATE TABLE IF NOT EXISTS alerts (
+              user_id UUID,
+              alert_date DATE,
+              alert_time TIMESTAMP,
+              alert_id UUID,
+              device_id UUID,
+              alert_type TEXT,
+              severity TEXT,
+              message TEXT,
+              acknowledged BOOLEAN,
+              acknowledged_at TIMESTAMP,
+              PRIMARY KEY ((user_id, alert_date), alert_time, alert_id)
+          ) WITH CLUSTERING ORDER BY (alert_time DESC, alert_id ASC);
+
+          -- Device heartbeats (for online status tracking)
+          CREATE TABLE IF NOT EXISTS device_heartbeats (
+              device_id UUID,
+              heartbeat_date DATE,
+              heartbeat_time TIMESTAMP,
+              signal_strength INT,
+              battery_level INT,
+              firmware_version TEXT,
+              PRIMARY KEY ((device_id, heartbeat_date), heartbeat_time)
+          ) WITH CLUSTERING ORDER BY (heartbeat_time DESC)
+            AND default_time_to_live = 604800;  -- 7 days TTL
+
+          EOF
+          echo "Schema initialization complete!"

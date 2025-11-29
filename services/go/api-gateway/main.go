@@ -1,0 +1,443 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"os"
+	"os/signal"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/cors"
+	"golang.org/x/time/rate"
+)
+
+// Config holds the application configuration
+type Config struct {
+	Port                   string
+	JWTSecret              string
+	UserServiceURL         string
+	DeviceServiceURL       string
+	DeviceIngestURL        string
+	NotificationServiceURL string
+	AnalyticsServiceURL    string
+	AgenticAIURL           string
+	RateLimitPerMinute     int
+	RateLimitBurst         int
+}
+
+// Claims represents JWT claims
+type Claims struct {
+	UserID string `json:"user_id"`
+	Email  string `json:"email"`
+	Role   string `json:"role"`
+	jwt.RegisteredClaims
+}
+
+// RateLimiter manages per-client rate limiting
+type RateLimiter struct {
+	limiters map[string]*rate.Limiter
+	mu       sync.RWMutex
+	r        rate.Limit
+	b        int
+}
+
+// Metrics for Prometheus
+var (
+	httpRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "api_gateway_http_requests_total",
+			Help: "Total number of HTTP requests",
+		},
+		[]string{"method", "path", "status"},
+	)
+	httpRequestDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "api_gateway_http_request_duration_seconds",
+			Help:    "HTTP request duration in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"method", "path"},
+	)
+	activeConnections = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "api_gateway_active_connections",
+			Help: "Number of active connections",
+		},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(httpRequestsTotal)
+	prometheus.MustRegister(httpRequestDuration)
+	prometheus.MustRegister(activeConnections)
+}
+
+func loadConfig() *Config {
+	return &Config{
+		Port:                   getEnv("PORT", "8080"),
+		JWTSecret:              getEnv("JWT_SECRET", "homeguard-jwt-secret-change-in-production-2024-very-long-key"),
+		UserServiceURL:         getEnv("USER_SERVICE_URL", "http://user-service:8080"),
+		DeviceServiceURL:       getEnv("DEVICE_SERVICE_URL", "http://device-service:8080"),
+		DeviceIngestURL:        getEnv("DEVICE_INGEST_URL", "http://device-ingest:8080"),
+		NotificationServiceURL: getEnv("NOTIFICATION_SERVICE_URL", "http://notification-service:8080"),
+		AnalyticsServiceURL:    getEnv("ANALYTICS_SERVICE_URL", "http://analytics-service:8080"),
+		AgenticAIURL:           getEnv("AGENTIC_AI_URL", "http://agentic-ai:8080"),
+		RateLimitPerMinute:     getEnvInt("RATE_LIMIT_REQUESTS_PER_MINUTE", 100),
+		RateLimitBurst:         getEnvInt("RATE_LIMIT_BURST", 20),
+	}
+}
+
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		var result int
+		fmt.Sscanf(value, "%d", &result)
+		if result > 0 {
+			return result
+		}
+	}
+	return defaultValue
+}
+
+// NewRateLimiter creates a new rate limiter
+func NewRateLimiter(r rate.Limit, b int) *RateLimiter {
+	return &RateLimiter{
+		limiters: make(map[string]*rate.Limiter),
+		r:        r,
+		b:        b,
+	}
+}
+
+// GetLimiter returns a rate limiter for a given client
+func (rl *RateLimiter) GetLimiter(clientID string) *rate.Limiter {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	limiter, exists := rl.limiters[clientID]
+	if !exists {
+		limiter = rate.NewLimiter(rl.r, rl.b)
+		rl.limiters[clientID] = limiter
+	}
+	return limiter
+}
+
+// Gateway is the main API gateway struct
+type Gateway struct {
+	config      *Config
+	router      *mux.Router
+	rateLimiter *RateLimiter
+}
+
+// NewGateway creates a new API gateway
+func NewGateway(config *Config) *Gateway {
+	rateLimit := rate.Limit(float64(config.RateLimitPerMinute) / 60.0)
+	return &Gateway{
+		config:      config,
+		router:      mux.NewRouter(),
+		rateLimiter: NewRateLimiter(rateLimit, config.RateLimitBurst),
+	}
+}
+
+// SetupRoutes configures all API routes
+func (g *Gateway) SetupRoutes() {
+	// Health check
+	g.router.HandleFunc("/health", g.healthCheck).Methods("GET")
+	g.router.HandleFunc("/ready", g.readinessCheck).Methods("GET")
+
+	// Metrics
+	g.router.Handle("/metrics", promhttp.Handler())
+
+	// Public routes (no auth)
+	g.router.HandleFunc("/api/v1/auth/login", g.proxyHandler(g.config.UserServiceURL)).Methods("POST")
+	g.router.HandleFunc("/api/v1/auth/register", g.proxyHandler(g.config.UserServiceURL)).Methods("POST")
+	g.router.HandleFunc("/api/v1/auth/refresh", g.proxyHandler(g.config.UserServiceURL)).Methods("POST")
+
+	// Device ingestion (device-token auth, not user JWT)
+	g.router.HandleFunc("/api/v1/ingest/{path:.*}", g.deviceAuthMiddleware(g.proxyHandler(g.config.DeviceIngestURL))).Methods("POST")
+
+	// Protected routes (require JWT)
+	api := g.router.PathPrefix("/api/v1").Subrouter()
+	api.Use(g.authMiddleware)
+	api.Use(g.rateLimitMiddleware)
+
+	// User routes
+	api.HandleFunc("/users/me", g.proxyHandler(g.config.UserServiceURL)).Methods("GET", "PUT")
+	api.HandleFunc("/users/{id}", g.proxyHandler(g.config.UserServiceURL)).Methods("GET")
+
+	// Device routes
+	api.HandleFunc("/devices", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET", "POST")
+	api.HandleFunc("/devices/{id}", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET", "PUT", "DELETE")
+	api.HandleFunc("/devices/{id}/command", g.proxyHandler(g.config.DeviceServiceURL)).Methods("POST")
+	api.HandleFunc("/devices/{id}/status", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET")
+	api.HandleFunc("/devices/{id}/events", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET")
+
+	// Notification routes
+	api.HandleFunc("/notifications", g.proxyHandler(g.config.NotificationServiceURL)).Methods("GET")
+	api.HandleFunc("/notifications/{id}/read", g.proxyHandler(g.config.NotificationServiceURL)).Methods("PUT")
+	api.HandleFunc("/notifications/preferences", g.proxyHandler(g.config.NotificationServiceURL)).Methods("GET", "PUT")
+
+	// Analytics routes
+	api.HandleFunc("/analytics/summary", g.proxyHandler(g.config.AnalyticsServiceURL)).Methods("GET")
+	api.HandleFunc("/analytics/devices/{id}", g.proxyHandler(g.config.AnalyticsServiceURL)).Methods("GET")
+	api.HandleFunc("/analytics/trends", g.proxyHandler(g.config.AnalyticsServiceURL)).Methods("GET")
+
+	// AI Agent routes
+	api.HandleFunc("/agent/chat", g.proxyHandler(g.config.AgenticAIURL)).Methods("POST")
+	api.HandleFunc("/agent/stream", g.proxyHandler(g.config.AgenticAIURL)).Methods("POST")
+	api.HandleFunc("/agent/history", g.proxyHandler(g.config.AgenticAIURL)).Methods("GET")
+	api.HandleFunc("/agent/suggestions", g.proxyHandler(g.config.AgenticAIURL)).Methods("GET")
+
+	// WebSocket for real-time updates
+	api.HandleFunc("/ws", g.websocketHandler).Methods("GET")
+}
+
+func (g *Gateway) healthCheck(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+}
+
+func (g *Gateway) readinessCheck(w http.ResponseWriter, r *http.Request) {
+	// Check downstream services
+	services := map[string]string{
+		"user-service":   g.config.UserServiceURL,
+		"device-service": g.config.DeviceServiceURL,
+	}
+
+	allReady := true
+	status := make(map[string]string)
+
+	for name, url := range services {
+		resp, err := http.Get(url + "/health")
+		if err != nil || resp.StatusCode != 200 {
+			status[name] = "unhealthy"
+			allReady = false
+		} else {
+			status[name] = "healthy"
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if !allReady {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"ready":    allReady,
+		"services": status,
+	})
+}
+
+func (g *Gateway) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			g.errorResponse(w, http.StatusUnauthorized, "Missing authorization header")
+			return
+		}
+
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+		if tokenString == authHeader {
+			g.errorResponse(w, http.StatusUnauthorized, "Invalid authorization format")
+			return
+		}
+
+		claims := &Claims{}
+		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return []byte(g.config.JWTSecret), nil
+		})
+
+		if err != nil || !token.Valid {
+			g.errorResponse(w, http.StatusUnauthorized, "Invalid or expired token")
+			return
+		}
+
+		// Add user info to request context
+		ctx := context.WithValue(r.Context(), "user_id", claims.UserID)
+		ctx = context.WithValue(ctx, "user_email", claims.Email)
+		ctx = context.WithValue(ctx, "user_role", claims.Role)
+
+		// Add user info to headers for downstream services
+		r.Header.Set("X-User-ID", claims.UserID)
+		r.Header.Set("X-User-Email", claims.Email)
+		r.Header.Set("X-User-Role", claims.Role)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (g *Gateway) deviceAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		deviceToken := r.Header.Get("X-Device-Token")
+		if deviceToken == "" {
+			g.errorResponse(w, http.StatusUnauthorized, "Missing device token")
+			return
+		}
+		// Device token validation is done by the device-ingest service
+		next.ServeHTTP(w, r)
+	}
+}
+
+func (g *Gateway) rateLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientID := r.Header.Get("X-User-ID")
+		if clientID == "" {
+			clientID = r.RemoteAddr
+		}
+
+		limiter := g.rateLimiter.GetLimiter(clientID)
+		if !limiter.Allow() {
+			g.errorResponse(w, http.StatusTooManyRequests, "Rate limit exceeded")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (g *Gateway) proxyHandler(targetURL string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		target, err := url.Parse(targetURL)
+		if err != nil {
+			g.errorResponse(w, http.StatusInternalServerError, "Invalid target URL")
+			return
+		}
+
+		proxy := httputil.NewSingleHostReverseProxy(target)
+		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+			log.Printf("Proxy error: %v", err)
+			g.errorResponse(w, http.StatusBadGateway, "Service unavailable")
+		}
+
+		// Modify the request
+		proxy.Director = func(req *http.Request) {
+			req.URL.Scheme = target.Scheme
+			req.URL.Host = target.Host
+			req.Host = target.Host
+
+			// Preserve the original path
+			if strings.HasPrefix(r.URL.Path, "/api/v1/") {
+				// Strip /api/v1 prefix for downstream services
+				req.URL.Path = strings.TrimPrefix(r.URL.Path, "/api/v1")
+			}
+		}
+
+		proxy.ServeHTTP(w, r)
+	}
+}
+
+func (g *Gateway) websocketHandler(w http.ResponseWriter, r *http.Request) {
+	// WebSocket handling will be implemented with gorilla/websocket
+	// For now, return a placeholder
+	g.errorResponse(w, http.StatusNotImplemented, "WebSocket endpoint - coming soon")
+}
+
+func (g *Gateway) errorResponse(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"error":   true,
+		"message": message,
+		"status":  status,
+	})
+}
+
+// metricsMiddleware records metrics for all requests
+func metricsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		activeConnections.Inc()
+		defer activeConnections.Dec()
+
+		// Wrap response writer to capture status code
+		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		next.ServeHTTP(wrapped, r)
+
+		duration := time.Since(start).Seconds()
+		path := r.URL.Path
+		method := r.Method
+
+		httpRequestsTotal.WithLabelValues(method, path, fmt.Sprintf("%d", wrapped.statusCode)).Inc()
+		httpRequestDuration.WithLabelValues(method, path).Observe(duration)
+	})
+}
+
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
+func main() {
+	log.Println("Starting HomeGuard API Gateway...")
+
+	config := loadConfig()
+	gateway := NewGateway(config)
+	gateway.SetupRoutes()
+
+	// Setup CORS
+	c := cors.New(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:3000", "http://homeguard.localhost", "*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Device-Token"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	})
+
+	// Wrap router with CORS and metrics
+	handler := c.Handler(metricsMiddleware(gateway.router))
+
+	server := &http.Server{
+		Addr:         ":" + config.Port,
+		Handler:      handler,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// Graceful shutdown
+	go func() {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		<-sigChan
+
+		log.Println("Shutting down server...")
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := server.Shutdown(ctx); err != nil {
+			log.Printf("Server shutdown error: %v", err)
+		}
+	}()
+
+	log.Printf("API Gateway listening on port %s", config.Port)
+	if err := server.ListenAndServe(); err != http.ErrServerClosed {
+		log.Fatalf("Server error: %v", err)
+	}
+	log.Println("Server stopped")
+}

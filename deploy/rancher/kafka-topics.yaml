@@ -1,0 +1,128 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: device-events
+  namespace: homeguard-messaging
+  labels:
+    strimzi.io/cluster: homeguard-kafka
+    app: homeguard
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 604800000  # 7 days
+    cleanup.policy: delete
+    segment.bytes: 1073741824  # 1GB
+    min.insync.replicas: 1
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: device-commands
+  namespace: homeguard-messaging
+  labels:
+    strimzi.io/cluster: homeguard-kafka
+    app: homeguard
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 86400000  # 1 day
+    cleanup.policy: delete
+    min.insync.replicas: 1
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: device-heartbeats
+  namespace: homeguard-messaging
+  labels:
+    strimzi.io/cluster: homeguard-kafka
+    app: homeguard
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 86400000  # 1 day
+    cleanup.policy: delete
+    min.insync.replicas: 1
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: device-alerts
+  namespace: homeguard-messaging
+  labels:
+    strimzi.io/cluster: homeguard-kafka
+    app: homeguard
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 2592000000  # 30 days
+    cleanup.policy: delete
+    min.insync.replicas: 1
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: anomaly-scores
+  namespace: homeguard-messaging
+  labels:
+    strimzi.io/cluster: homeguard-kafka
+    app: homeguard
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 604800000  # 7 days
+    cleanup.policy: delete
+    min.insync.replicas: 1
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: agent-actions
+  namespace: homeguard-messaging
+  labels:
+    strimzi.io/cluster: homeguard-kafka
+    app: homeguard
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 2592000000  # 30 days
+    cleanup.policy: delete
+    min.insync.replicas: 1
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: notifications
+  namespace: homeguard-messaging
+  labels:
+    strimzi.io/cluster: homeguard-kafka
+    app: homeguard
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 86400000  # 1 day
+    cleanup.policy: delete
+    min.insync.replicas: 1
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: scenario-events
+  namespace: homeguard-messaging
+  labels:
+    strimzi.io/cluster: homeguard-kafka
+    app: homeguard
+spec:
+  partitions: 1
+  replicas: 1
+  config:
+    retention.ms: 3600000  # 1 hour
+    cleanup.policy: delete
+    min.insync.replicas: 1

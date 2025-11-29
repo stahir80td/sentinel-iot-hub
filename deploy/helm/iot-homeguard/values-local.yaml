@@ -1,0 +1,49 @@
+# Local development environment values
+# Usage: helm install iot-homeguard ./iot-homeguard -f values-local.yaml
+
+global:
+  namePrefix: "iot"
+  namespace: "sandbox"
+
+  environment:
+    name: "local"
+    baseDomain: "homeguard.localhost"
+
+    tls:
+      enabled: false
+
+    publicUrls:
+      frontend: "http://homeguard.localhost"
+      api: "http://homeguard.localhost/api"
+      grafana: "http://grafana.homeguard.localhost"
+      n8n: "http://n8n.homeguard.localhost"
+      prometheus: "http://prometheus.homeguard.localhost"
+
+# Use minimal resources for local development
+postgresql:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+mongodb:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 768Mi
+
+kafka:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

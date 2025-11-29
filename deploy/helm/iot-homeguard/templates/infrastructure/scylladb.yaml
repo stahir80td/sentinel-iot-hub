@@ -1,0 +1,96 @@
+{{- if .Values.scylladb.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.global.namePrefix }}-scylladb-data
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-scylladb
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.scylladb.storage.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.global.namePrefix }}-scylladb
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-scylladb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.global.namePrefix }}-scylladb
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.global.namePrefix }}-scylladb
+    spec:
+      containers:
+        - name: scylladb
+          image: {{ .Values.scylladb.image }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          args:
+            - --developer-mode=1
+            - --memory=512M
+            - --overprovisioned=1
+            - --smp=1
+          ports:
+            - containerPort: 9042
+              name: cql
+            - containerPort: 9160
+              name: thrift
+          resources:
+            {{- toYaml .Values.scylladb.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/scylla
+          livenessProbe:
+            exec:
+              command:
+                - cqlsh
+                - -e
+                - "describe cluster"
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - cqlsh
+                - -e
+                - "describe cluster"
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.global.namePrefix }}-scylladb-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.global.namePrefix }}-scylladb
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-scylladb
+spec:
+  selector:
+    app: {{ .Values.global.namePrefix }}-scylladb
+  ports:
+    - port: 9042
+      targetPort: 9042
+      name: cql
+    - port: 9160
+      targetPort: 9160
+      name: thrift
+{{- end }}

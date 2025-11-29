@@ -1,0 +1,470 @@
+# HomeGuard IoT Platform - Grafana Configuration
+# Datasources and Dashboards for observability
+
+---
+# Grafana Datasources ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources-homeguard
+  namespace: homeguard-observability
+  labels:
+    grafana_datasource: "1"
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      # Prometheus - Metrics
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus-kube-prometheus-prometheus:9090
+        isDefault: true
+        editable: false
+
+      # Loki - Logs
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki:3100
+        editable: false
+
+      # TimescaleDB - Time-series analytics
+      - name: TimescaleDB
+        type: postgres
+        access: proxy
+        url: timescaledb.homeguard-data:5432
+        database: analytics
+        user: postgres
+        secureJsonData:
+          password: homeguard-timescale-2024
+        jsonData:
+          sslmode: disable
+          maxOpenConns: 5
+          maxIdleConns: 2
+          connMaxLifetime: 14400
+          postgresVersion: 1500
+          timescaledb: true
+        editable: false
+
+      # PostgreSQL - Application data
+      - name: PostgreSQL
+        type: postgres
+        access: proxy
+        url: postgresql.homeguard-data:5432
+        database: homeguard
+        user: postgres
+        secureJsonData:
+          password: homeguard-postgres-2024
+        jsonData:
+          sslmode: disable
+          maxOpenConns: 5
+          maxIdleConns: 2
+          connMaxLifetime: 14400
+          postgresVersion: 1500
+        editable: false
+
+---
+# Grafana Dashboard ConfigMaps
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-homeguard-overview
+  namespace: homeguard-observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  homeguard-overview.json: |
+    {
+      "annotations": {
+        "list": []
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "yellow", "value": 80},
+                  {"color": "red", "value": 90}
+                ]
+              },
+              "unit": "percent"
+            }
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "id": 1,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": ["lastNotNull"],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          },
+          "pluginVersion": "9.0.0",
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{job=~\".*homeguard.*\"}[5m])) by (job)",
+              "legendFormat": "{{job}}"
+            }
+          ],
+          "title": "Request Rate",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "id": 2,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": ["lastNotNull"],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(up{job=~\".*homeguard.*\"})",
+              "legendFormat": "Services Up"
+            }
+          ],
+          "title": "Services Online",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "id": 3,
+          "targets": [
+            {
+              "expr": "sum(increase(kafka_server_BrokerTopicMetrics_MessagesInPerSec_count[5m]))",
+              "legendFormat": "Messages/5m"
+            }
+          ],
+          "title": "Kafka Messages",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "id": 4,
+          "targets": [
+            {
+              "expr": "sum(redis_connected_clients)",
+              "legendFormat": "Connections"
+            }
+          ],
+          "title": "Redis Connections",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "id": 5,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "single"
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(http_request_duration_seconds_sum{job=~\".*homeguard.*\"}[5m])) by (service) / sum(rate(http_request_duration_seconds_count{job=~\".*homeguard.*\"}[5m])) by (service)",
+              "legendFormat": "{{service}}"
+            }
+          ],
+          "title": "Request Latency by Service",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "id": 6,
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{job=~\".*homeguard.*\", status=~\"5..\"}[5m])) by (service)",
+              "legendFormat": "{{service}}"
+            }
+          ],
+          "title": "Error Rate by Service",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {"h": 10, "w": 24, "x": 0, "y": 12},
+          "id": 7,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
+          },
+          "targets": [
+            {
+              "expr": "{namespace=~\"homeguard.*\"} |= \"error\" or {namespace=~\"homeguard.*\"} |= \"ERROR\"",
+              "legendFormat": ""
+            }
+          ],
+          "title": "Error Logs",
+          "type": "logs"
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["homeguard", "overview"],
+      "templating": {
+        "list": []
+      },
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "timepicker": {},
+      "timezone": "",
+      "title": "HomeGuard IoT - Overview",
+      "uid": "homeguard-overview",
+      "version": 1,
+      "weekStart": ""
+    }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-kafka
+  namespace: homeguard-observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  kafka-dashboard.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "panels": [
+        {
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "id": 1,
+          "targets": [
+            {
+              "expr": "sum(kafka_server_ReplicaManager_LeaderCount)",
+              "legendFormat": "Leaders"
+            }
+          ],
+          "title": "Partition Leaders",
+          "type": "stat"
+        },
+        {
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "id": 2,
+          "targets": [
+            {
+              "expr": "sum(kafka_server_BrokerTopicMetrics_MessagesInPerSec_count)",
+              "legendFormat": "Messages"
+            }
+          ],
+          "title": "Total Messages",
+          "type": "stat"
+        },
+        {
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "id": 3,
+          "targets": [
+            {
+              "expr": "sum(rate(kafka_server_BrokerTopicMetrics_MessagesInPerSec_count[5m])) by (topic)",
+              "legendFormat": "{{topic}}"
+            }
+          ],
+          "title": "Messages In Rate by Topic",
+          "type": "timeseries"
+        },
+        {
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "id": 4,
+          "targets": [
+            {
+              "expr": "sum(kafka_consumergroup_lag) by (consumergroup)",
+              "legendFormat": "{{consumergroup}}"
+            }
+          ],
+          "title": "Consumer Group Lag",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 38,
+      "tags": ["homeguard", "kafka"],
+      "title": "HomeGuard IoT - Kafka",
+      "uid": "homeguard-kafka",
+      "version": 1
+    }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-ai-agent
+  namespace: homeguard-observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  ai-agent-dashboard.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "panels": [
+        {
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "id": 1,
+          "targets": [
+            {
+              "expr": "sum(increase(agent_conversations_total[24h]))",
+              "legendFormat": "Conversations"
+            }
+          ],
+          "title": "Conversations (24h)",
+          "type": "stat"
+        },
+        {
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "id": 2,
+          "targets": [
+            {
+              "expr": "sum(increase(agent_actions_taken_total[24h]))",
+              "legendFormat": "Actions"
+            }
+          ],
+          "title": "Actions Taken (24h)",
+          "type": "stat"
+        },
+        {
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "id": 3,
+          "targets": [
+            {
+              "expr": "sum(increase(agent_false_alarm_prevented_total[24h]))",
+              "legendFormat": "Prevented"
+            }
+          ],
+          "title": "False Alarms Prevented",
+          "type": "stat"
+        },
+        {
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "id": 4,
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(agent_response_time_seconds_bucket[5m])) by (le))",
+              "legendFormat": "p95"
+            }
+          ],
+          "title": "Response Time (p95)",
+          "type": "stat"
+        },
+        {
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "id": 5,
+          "targets": [
+            {
+              "expr": "sum(rate(gemini_requests_total[5m])) by (status)",
+              "legendFormat": "{{status}}"
+            }
+          ],
+          "title": "Gemini API Requests",
+          "type": "timeseries"
+        },
+        {
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "id": 6,
+          "targets": [
+            {
+              "expr": "sum(increase(gemini_tokens_used_total[1h])) by (type)",
+              "legendFormat": "{{type}}"
+            }
+          ],
+          "title": "Token Usage (Hourly)",
+          "type": "timeseries"
+        },
+        {
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "id": 7,
+          "targets": [
+            {
+              "expr": "sum(rate(anomaly_events_scored_total[5m])) by (is_anomaly)",
+              "legendFormat": "Anomaly: {{is_anomaly}}"
+            }
+          ],
+          "title": "Anomaly Detection Rate",
+          "type": "timeseries"
+        },
+        {
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "id": 8,
+          "targets": [
+            {
+              "expr": "sum(rate(agent_actions_taken_total[5m])) by (action_type)",
+              "legendFormat": "{{action_type}}"
+            }
+          ],
+          "title": "Actions by Type",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 38,
+      "tags": ["homeguard", "ai", "agent"],
+      "title": "HomeGuard IoT - AI Agent",
+      "uid": "homeguard-ai-agent",
+      "version": 1
+    }

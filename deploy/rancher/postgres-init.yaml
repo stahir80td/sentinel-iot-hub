@@ -1,0 +1,116 @@
+# PostgreSQL Initialization for User Service
+# This creates the initial schema and seed data
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-scripts
+  namespace: homeguard-data
+data:
+  01-schema.sql: |
+    -- Users table
+    CREATE TABLE IF NOT EXISTS users (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        role VARCHAR(50) DEFAULT 'user',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- User sessions table
+    CREATE TABLE IF NOT EXISTS user_sessions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        token_hash VARCHAR(255) NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Create indexes
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_token ON user_sessions(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires ON user_sessions(expires_at);
+
+    -- Updated at trigger function
+    CREATE OR REPLACE FUNCTION update_updated_at_column()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        NEW.updated_at = NOW();
+        RETURN NEW;
+    END;
+    $$ language 'plpgsql';
+
+    -- Apply trigger to users table
+    DROP TRIGGER IF EXISTS update_users_updated_at ON users;
+    CREATE TRIGGER update_users_updated_at
+        BEFORE UPDATE ON users
+        FOR EACH ROW
+        EXECUTE FUNCTION update_updated_at_column();
+
+  02-seed-users.sql: |
+    -- Seed demo users (password: demo123 for all users)
+    -- bcrypt hash of 'demo123'
+    INSERT INTO users (email, password_hash, name, role) VALUES
+        ('john@demo.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZRGdjGj/n3n0J0NkOGy.cGCGhbLqS', 'John Smith', 'user'),
+        ('sarah@demo.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZRGdjGj/n3n0J0NkOGy.cGCGhbLqS', 'Sarah Johnson', 'user'),
+        ('admin@demo.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZRGdjGj/n3n0J0NkOGy.cGCGhbLqS', 'Admin User', 'admin')
+    ON CONFLICT (email) DO NOTHING;
+
+---
+# Job to run the initialization scripts
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-init
+  namespace: homeguard-data
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+      - name: wait-for-postgres
+        image: postgres:15
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until pg_isready -h postgresql -p 5432 -U postgres; do
+            echo "Waiting for PostgreSQL..."
+            sleep 5
+          done
+          echo "PostgreSQL is ready!"
+        env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgresql
+              key: postgres-password
+      containers:
+      - name: init-schema
+        image: postgres:15
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Running schema initialization..."
+          PGPASSWORD=$PGPASSWORD psql -h postgresql -U postgres -d homeguard -f /scripts/01-schema.sql
+          echo "Running seed data..."
+          PGPASSWORD=$PGPASSWORD psql -h postgresql -U postgres -d homeguard -f /scripts/02-seed-users.sql
+          echo "Initialization complete!"
+        env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgresql
+              key: postgres-password
+        volumeMounts:
+        - name: init-scripts
+          mountPath: /scripts
+      volumes:
+      - name: init-scripts
+        configMap:
+          name: postgres-init-scripts

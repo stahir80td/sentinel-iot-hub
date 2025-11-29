@@ -1,0 +1,136 @@
+# DV1 (Development 1) environment values - On-prem Rancher cluster
+# Usage: helm install iot-homeguard ./iot-homeguard -f values-dv1.yaml --set agenticAi.geminiApiKey=xxx
+
+global:
+  namePrefix: "iot"
+  namespace: "sandbox"
+
+  environment:
+    name: "dv1"
+    # Update this to your actual DV1 domain
+    baseDomain: "iot.dv1.internal"
+
+    tls:
+      enabled: false  # Set to true if you have cert-manager configured
+      issuerName: ""
+      issuerKind: "ClusterIssuer"
+
+    # Update these to your actual DV1 URLs
+    publicUrls:
+      frontend: "http://iot.dv1.internal"
+      api: "http://iot.dv1.internal/api"
+      grafana: "http://grafana.iot.dv1.internal"
+      n8n: "http://n8n.iot.dv1.internal"
+      prometheus: "http://prometheus.iot.dv1.internal"
+
+ingress:
+  className: traefik  # or nginx depending on your cluster
+  annotations: {}
+
+# DV1 resource allocations (balanced between local and production)
+postgresql:
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  storage:
+    size: 5Gi
+
+mongodb:
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  storage:
+    size: 5Gi
+
+redis:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+  storage:
+    size: 1Gi
+
+timescaledb:
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  storage:
+    size: 5Gi
+
+scylladb:
+  resources:
+    requests:
+      cpu: 300m
+      memory: 768Mi
+    limits:
+      cpu: 1500m
+      memory: 1536Mi
+  storage:
+    size: 5Gi
+
+kafka:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 300m
+      memory: 768Mi
+    limits:
+      cpu: 1500m
+      memory: 1536Mi
+  storage:
+    size: 5Gi
+
+prometheus:
+  storage:
+    size: 5Gi
+
+grafana:
+  storage:
+    size: 2Gi
+
+# Application replicas
+frontend:
+  replicas: 1
+
+apiGateway:
+  replicas: 1
+
+userService:
+  replicas: 1
+
+deviceService:
+  replicas: 1
+
+deviceIngest:
+  replicas: 1
+
+eventProcessor:
+  replicas: 1
+
+notificationService:
+  replicas: 1
+
+scenarioEngine:
+  replicas: 1
+
+agenticAi:
+  replicas: 1
+
+# DV1 secrets - update these for DV1 environment
+secrets:
+  jwtSecret: "dv1-jwt-secret-change-this-to-your-dv1-key"

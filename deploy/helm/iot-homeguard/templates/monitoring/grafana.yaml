@@ -1,0 +1,139 @@
+{{- if .Values.grafana.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.global.namePrefix }}-grafana-data
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-grafana
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.grafana.storage.size }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.global.namePrefix }}-grafana-datasources
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://{{ .Values.global.namePrefix }}-prometheus.{{ .Values.global.namespace }}:9090
+        isDefault: true
+        editable: false
+      {{- if .Values.postgresql.enabled }}
+      - name: PostgreSQL
+        type: postgres
+        access: proxy
+        url: {{ .Values.global.namePrefix }}-postgresql.{{ .Values.global.namespace }}:5432
+        database: {{ .Values.postgresql.auth.database }}
+        user: {{ .Values.postgresql.auth.username }}
+        secureJsonData:
+          password: {{ .Values.postgresql.auth.password }}
+        jsonData:
+          sslmode: disable
+      {{- end }}
+      {{- if .Values.timescaledb.enabled }}
+      - name: TimescaleDB
+        type: postgres
+        access: proxy
+        url: {{ .Values.global.namePrefix }}-timescaledb.{{ .Values.global.namespace }}:5432
+        database: {{ .Values.timescaledb.auth.database }}
+        user: {{ .Values.timescaledb.auth.username }}
+        secureJsonData:
+          password: {{ .Values.timescaledb.auth.password }}
+        jsonData:
+          sslmode: disable
+          timescaledb: true
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.global.namePrefix }}-grafana
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.global.namePrefix }}-grafana
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.global.namePrefix }}-grafana
+    spec:
+      securityContext:
+        fsGroup: 472
+        runAsUser: 472
+      containers:
+        - name: grafana
+          image: {{ .Values.grafana.image }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: {{ .Values.grafana.auth.adminUser | quote }}
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.namePrefix }}-secrets
+                  key: grafana-admin-password
+            - name: GF_SERVER_ROOT_URL
+              value: {{ .Values.global.environment.publicUrls.grafana | quote }}
+          resources:
+            {{- toYaml .Values.grafana.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.global.namePrefix }}-grafana-data
+        - name: datasources
+          configMap:
+            name: {{ .Values.global.namePrefix }}-grafana-datasources
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.global.namePrefix }}-grafana
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-grafana
+spec:
+  selector:
+    app: {{ .Values.global.namePrefix }}-grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+{{- end }}

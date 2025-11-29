@@ -1,0 +1,422 @@
+# MongoDB Initialization for Device Service
+# Creates collections and seed data for devices and automations
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongodb-init-scripts
+  namespace: homeguard-data
+data:
+  init-devices.js: |
+    // Switch to homeguard database
+    db = db.getSiblingDB('homeguard');
+
+    // Create collections with validation
+    db.createCollection('devices', {
+      validator: {
+        $jsonSchema: {
+          bsonType: 'object',
+          required: ['device_id', 'user_id', 'name', 'type'],
+          properties: {
+            device_id: { bsonType: 'string' },
+            user_id: { bsonType: 'string' },
+            name: { bsonType: 'string' },
+            type: { enum: ['lock', 'motion', 'thermostat', 'door', 'camera', 'glass_break', 'smoke', 'doorbell'] },
+            model: { bsonType: 'string' },
+            firmware_version: { bsonType: 'string' },
+            location: {
+              bsonType: 'object',
+              properties: {
+                zone: { bsonType: 'string' },
+                floor: { bsonType: 'int' }
+              }
+            },
+            config: { bsonType: 'object' },
+            created_at: { bsonType: 'date' },
+            updated_at: { bsonType: 'date' }
+          }
+        }
+      }
+    });
+
+    db.createCollection('automations', {
+      validator: {
+        $jsonSchema: {
+          bsonType: 'object',
+          required: ['user_id', 'name', 'trigger', 'actions'],
+          properties: {
+            user_id: { bsonType: 'string' },
+            name: { bsonType: 'string' },
+            enabled: { bsonType: 'bool' },
+            trigger: { bsonType: 'object' },
+            actions: { bsonType: 'array' }
+          }
+        }
+      }
+    });
+
+    db.createCollection('agent_conversations');
+    db.createCollection('agent_learnings');
+
+    // Create indexes
+    db.devices.createIndex({ device_id: 1 }, { unique: true });
+    db.devices.createIndex({ user_id: 1 });
+    db.devices.createIndex({ type: 1 });
+    db.devices.createIndex({ 'location.zone': 1 });
+
+    db.automations.createIndex({ user_id: 1 });
+    db.automations.createIndex({ 'trigger.device_id': 1 });
+    db.automations.createIndex({ enabled: 1 });
+
+    db.agent_conversations.createIndex({ user_id: 1 });
+    db.agent_conversations.createIndex({ session_id: 1 });
+    db.agent_conversations.createIndex({ created_at: -1 });
+
+    db.agent_learnings.createIndex({ user_id: 1 }, { unique: true });
+
+    print('Collections and indexes created successfully!');
+
+  seed-devices.js: |
+    db = db.getSiblingDB('homeguard');
+
+    // User IDs (these should match PostgreSQL seed data)
+    const johnUserId = '11111111-1111-1111-1111-111111111111';
+    const sarahUserId = '22222222-2222-2222-2222-222222222222';
+
+    // John's devices (5 devices)
+    const johnDevices = [
+      {
+        device_id: 'dev-john-001',
+        user_id: johnUserId,
+        name: 'Front Door Lock',
+        type: 'lock',
+        model: 'Yale Assure Lock 2',
+        firmware_version: '1.2.3',
+        location: { zone: 'Front Entrance', floor: 1 },
+        config: { auto_lock_delay: 30, volume: 'medium' },
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        device_id: 'dev-john-002',
+        user_id: johnUserId,
+        name: 'Living Room Motion',
+        type: 'motion',
+        model: 'Ring Motion Sensor',
+        firmware_version: '2.1.0',
+        location: { zone: 'Living Room', floor: 1 },
+        config: { sensitivity: 'high', pet_immune: false },
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        device_id: 'dev-john-003',
+        user_id: johnUserId,
+        name: 'Main Thermostat',
+        type: 'thermostat',
+        model: 'Nest Learning Thermostat',
+        firmware_version: '5.4.1',
+        location: { zone: 'Hallway', floor: 1 },
+        config: { schedule_enabled: true, eco_temp: 68 },
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        device_id: 'dev-john-004',
+        user_id: johnUserId,
+        name: 'Garage Door',
+        type: 'door',
+        model: 'Chamberlain MyQ',
+        firmware_version: '1.0.5',
+        location: { zone: 'Garage', floor: 1 },
+        config: { auto_close_enabled: true, auto_close_delay: 600 },
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        device_id: 'dev-john-005',
+        user_id: johnUserId,
+        name: 'Front Door Camera',
+        type: 'camera',
+        model: 'Ring Video Doorbell Pro',
+        firmware_version: '3.2.1',
+        location: { zone: 'Front Entrance', floor: 1 },
+        config: { motion_zones: ['porch', 'walkway'], night_vision: true },
+        created_at: new Date(),
+        updated_at: new Date()
+      }
+    ];
+
+    // Sarah's devices (12 devices - larger home)
+    const sarahDevices = [
+      {
+        device_id: 'dev-sarah-001',
+        user_id: sarahUserId,
+        name: 'Front Door Lock',
+        type: 'lock',
+        model: 'August Smart Lock Pro',
+        firmware_version: '2.3.4',
+        location: { zone: 'Front Entrance', floor: 1 },
+        config: { auto_lock_delay: 60, dnd_enabled: true },
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        device_id: 'dev-sarah-002',
+        user_id: sarahUserId,
+        name: 'Back Door Lock',
+        type: 'lock',
+        model: 'Schlage Encode',
+        firmware_version: '1.5.2',
+        location: { zone: 'Back Entrance', floor: 1 },
+        config: { auto_lock_delay: 30 },
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        device_id: 'dev-sarah-003',
+        user_id: sarahUserId,
+        name: 'Living Room Motion',
+        type: 'motion',
+        model: 'Aqara Motion Sensor',
+        firmware_version: '1.2.0',
+        location: { zone: 'Living Room', floor: 1 },
+        config: { sensitivity: 'medium', pet_immune: true },
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        device_id: 'dev-sarah-004',
+        user_id: sarahUserId,
+        name: 'Kitchen Motion',
+        type: 'motion',
+        model: 'Aqara Motion Sensor',
+        firmware_version: '1.2.0',
+        location: { zone: 'Kitchen', floor: 1 },
+        config: { sensitivity: 'low' },
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        device_id: 'dev-sarah-005',
+        user_id: sarahUserId,
+        name: 'Bedroom Motion',
+        type: 'motion',
+        model: 'Aqara Motion Sensor',
+        firmware_version: '1.2.0',
+        location: { zone: 'Master Bedroom', floor: 2 },
+        config: { sensitivity: 'high' },
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        device_id: 'dev-sarah-006',
+        user_id: sarahUserId,
+        name: 'Hallway Motion',
+        type: 'motion',
+        model: 'Aqara Motion Sensor',
+        firmware_version: '1.2.0',
+        location: { zone: 'Upstairs Hallway', floor: 2 },
+        config: { sensitivity: 'medium' },
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        device_id: 'dev-sarah-007',
+        user_id: sarahUserId,
+        name: 'Main Thermostat',
+        type: 'thermostat',
+        model: 'Ecobee SmartThermostat',
+        firmware_version: '4.6.2',
+        location: { zone: 'Living Room', floor: 1 },
+        config: { schedule_enabled: true, occupancy_detection: true },
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        device_id: 'dev-sarah-008',
+        user_id: sarahUserId,
+        name: 'Back Window Glass Break',
+        type: 'glass_break',
+        model: 'SimpliSafe Glass Break Sensor',
+        firmware_version: '1.1.0',
+        location: { zone: 'Back Bedroom', floor: 1 },
+        config: { sensitivity: 'high' },
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        device_id: 'dev-sarah-009',
+        user_id: sarahUserId,
+        name: 'Kitchen Smoke Detector',
+        type: 'smoke',
+        model: 'Nest Protect',
+        firmware_version: '2.4.0',
+        location: { zone: 'Kitchen', floor: 1 },
+        config: { steam_check: true },
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        device_id: 'dev-sarah-010',
+        user_id: sarahUserId,
+        name: 'Upstairs Smoke Detector',
+        type: 'smoke',
+        model: 'Nest Protect',
+        firmware_version: '2.4.0',
+        location: { zone: 'Upstairs Hallway', floor: 2 },
+        config: {},
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        device_id: 'dev-sarah-011',
+        user_id: sarahUserId,
+        name: 'Front Doorbell',
+        type: 'doorbell',
+        model: 'Nest Hello',
+        firmware_version: '3.1.0',
+        location: { zone: 'Front Entrance', floor: 1 },
+        config: { chime_enabled: true, quiet_hours: { start: '22:00', end: '07:00' } },
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        device_id: 'dev-sarah-012',
+        user_id: sarahUserId,
+        name: 'Backyard Camera',
+        type: 'camera',
+        model: 'Arlo Pro 4',
+        firmware_version: '1.8.3',
+        location: { zone: 'Backyard', floor: 1 },
+        config: { motion_zones: ['patio', 'fence_line'], spotlight: true },
+        created_at: new Date(),
+        updated_at: new Date()
+      }
+    ];
+
+    // Insert devices
+    db.devices.deleteMany({ user_id: { $in: [johnUserId, sarahUserId] } });
+    db.devices.insertMany([...johnDevices, ...sarahDevices]);
+    print('Inserted ' + (johnDevices.length + sarahDevices.length) + ' devices');
+
+    // Sample automations
+    const automations = [
+      {
+        user_id: johnUserId,
+        name: 'Night Motion Alert',
+        enabled: true,
+        trigger: {
+          type: 'device_event',
+          device_id: 'dev-john-002',
+          event_type: 'motion_detected',
+          conditions: {
+            time_range: { start: '22:00', end: '06:00' },
+            arm_state: 'armed'
+          }
+        },
+        actions: [
+          { type: 'notification', channel: 'push', message: 'Motion detected at night!' }
+        ],
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        user_id: johnUserId,
+        name: 'Garage Auto-Close',
+        enabled: true,
+        trigger: {
+          type: 'device_state',
+          device_id: 'dev-john-004',
+          state: 'open',
+          duration_minutes: 10
+        },
+        actions: [
+          { type: 'device_command', device_id: 'dev-john-004', command: 'close' },
+          { type: 'notification', channel: 'push', message: 'Garage auto-closed after 10 minutes' }
+        ],
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        user_id: sarahUserId,
+        name: 'Welcome Home',
+        enabled: true,
+        trigger: {
+          type: 'device_event',
+          device_id: 'dev-sarah-001',
+          event_type: 'unlocked',
+          conditions: {
+            arm_state: 'away'
+          }
+        },
+        actions: [
+          { type: 'device_command', device_id: 'dev-sarah-007', command: 'set_temperature', params: { temp: 72 } },
+          { type: 'arm_state', state: 'home' }
+        ],
+        created_at: new Date(),
+        updated_at: new Date()
+      }
+    ];
+
+    db.automations.deleteMany({ user_id: { $in: [johnUserId, sarahUserId] } });
+    db.automations.insertMany(automations);
+    print('Inserted ' + automations.length + ' automations');
+
+    print('Seed data inserted successfully!');
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongodb-init
+  namespace: homeguard-data
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+      - name: wait-for-mongodb
+        image: mongo:7
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until mongosh --host mongodb --eval "db.adminCommand('ping')" --quiet; do
+            echo "Waiting for MongoDB..."
+            sleep 5
+          done
+          echo "MongoDB is ready!"
+        env:
+        - name: MONGO_INITDB_ROOT_USERNAME
+          value: root
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mongodb
+              key: mongodb-root-password
+      containers:
+      - name: init-data
+        image: mongo:7
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Initializing MongoDB..."
+          mongosh --host mongodb -u root -p "$MONGODB_ROOT_PASSWORD" --authenticationDatabase admin /scripts/init-devices.js
+          mongosh --host mongodb -u root -p "$MONGODB_ROOT_PASSWORD" --authenticationDatabase admin /scripts/seed-devices.js
+          echo "MongoDB initialization complete!"
+        env:
+        - name: MONGODB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mongodb
+              key: mongodb-root-password
+        volumeMounts:
+        - name: init-scripts
+          mountPath: /scripts
+      volumes:
+      - name: init-scripts
+        configMap:
+          name: mongodb-init-scripts

@@ -1,0 +1,83 @@
+{{- if .Values.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Values.global.namePrefix }}-ingress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+  annotations:
+    {{- if .Values.ingress.annotations }}
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.global.environment.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.global.environment.baseDomain }}
+        - grafana.{{ .Values.global.environment.baseDomain }}
+        - n8n.{{ .Values.global.environment.baseDomain }}
+        - prometheus.{{ .Values.global.environment.baseDomain }}
+      secretName: {{ .Values.global.namePrefix }}-tls
+  {{- end }}
+  rules:
+    # Main application (frontend + API)
+    - host: {{ .Values.ingress.hosts.frontend | default .Values.global.environment.baseDomain }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.global.namePrefix }}-api-gateway
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.global.namePrefix }}-frontend
+                port:
+                  number: 80
+    {{- if .Values.grafana.enabled }}
+    # Grafana
+    - host: {{ .Values.ingress.hosts.grafana | default (printf "grafana.%s" .Values.global.environment.baseDomain) }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.global.namePrefix }}-grafana
+                port:
+                  number: 3000
+    {{- end }}
+    {{- if .Values.n8n.enabled }}
+    # n8n
+    - host: {{ .Values.ingress.hosts.n8n | default (printf "n8n.%s" .Values.global.environment.baseDomain) }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.global.namePrefix }}-n8n
+                port:
+                  number: 5678
+    {{- end }}
+    {{- if .Values.prometheus.enabled }}
+    # Prometheus
+    - host: {{ .Values.ingress.hosts.prometheus | default (printf "prometheus.%s" .Values.global.environment.baseDomain) }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.global.namePrefix }}-prometheus
+                port:
+                  number: 9090
+    {{- end }}
+{{- end }}

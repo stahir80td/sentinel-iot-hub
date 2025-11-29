@@ -1,0 +1,96 @@
+{{- if .Values.mongodb.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.global.namePrefix }}-mongodb-data
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-mongodb
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.mongodb.storage.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.global.namePrefix }}-mongodb
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-mongodb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.global.namePrefix }}-mongodb
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.global.namePrefix }}-mongodb
+    spec:
+      containers:
+        - name: mongodb
+          image: {{ .Values.mongodb.image }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: 27017
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              value: {{ .Values.mongodb.auth.rootUsername | quote }}
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.namePrefix }}-secrets
+                  key: mongodb-root-password
+            - name: MONGO_INITDB_DATABASE
+              value: {{ .Values.mongodb.auth.database | quote }}
+          resources:
+            {{- toYaml .Values.mongodb.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+          livenessProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' localhost:27017/test --authenticationDatabase admin -u {{ .Values.mongodb.auth.rootUsername }} -p $MONGO_INITDB_ROOT_PASSWORD"
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' localhost:27017/test --authenticationDatabase admin -u {{ .Values.mongodb.auth.rootUsername }} -p $MONGO_INITDB_ROOT_PASSWORD"
+            initialDelaySeconds: 45
+            periodSeconds: 15
+            timeoutSeconds: 15
+            failureThreshold: 3
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.global.namePrefix }}-mongodb-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.global.namePrefix }}-mongodb
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-mongodb
+spec:
+  selector:
+    app: {{ .Values.global.namePrefix }}-mongodb
+  ports:
+    - port: 27017
+      targetPort: 27017
+{{- end }}

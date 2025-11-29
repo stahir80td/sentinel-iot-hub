@@ -1,0 +1,99 @@
+
+=======================================================================
+  IoT HomeGuard Platform has been deployed!
+=======================================================================
+
+Environment: {{ .Values.global.environment.name }}
+Namespace: {{ .Values.global.namespace }}
+Resource Prefix: {{ .Values.global.namePrefix }}
+
+-----------------------------------------------------------------------
+  ACCESS URLS
+-----------------------------------------------------------------------
+
+Frontend:     {{ .Values.global.environment.publicUrls.frontend }}
+API:          {{ .Values.global.environment.publicUrls.api }}
+{{- if .Values.grafana.enabled }}
+Grafana:      {{ .Values.global.environment.publicUrls.grafana }}
+              Username: {{ .Values.grafana.auth.adminUser }}
+{{- end }}
+{{- if .Values.n8n.enabled }}
+n8n:          {{ .Values.global.environment.publicUrls.n8n }}
+              Username: {{ .Values.n8n.auth.username }}
+{{- end }}
+{{- if .Values.prometheus.enabled }}
+Prometheus:   {{ .Values.global.environment.publicUrls.prometheus }}
+{{- end }}
+
+-----------------------------------------------------------------------
+  INFRASTRUCTURE COMPONENTS
+-----------------------------------------------------------------------
+
+{{- if .Values.postgresql.enabled }}
+PostgreSQL:   {{ .Values.global.namePrefix }}-postgresql.{{ .Values.global.namespace }}:5432
+{{- end }}
+{{- if .Values.mongodb.enabled }}
+MongoDB:      {{ .Values.global.namePrefix }}-mongodb.{{ .Values.global.namespace }}:27017
+{{- end }}
+{{- if .Values.redis.enabled }}
+Redis:        {{ .Values.global.namePrefix }}-redis.{{ .Values.global.namespace }}:6379
+{{- end }}
+{{- if .Values.timescaledb.enabled }}
+TimescaleDB:  {{ .Values.global.namePrefix }}-timescaledb.{{ .Values.global.namespace }}:5432
+{{- end }}
+{{- if .Values.scylladb.enabled }}
+ScyllaDB:     {{ .Values.global.namePrefix }}-scylladb.{{ .Values.global.namespace }}:9042
+{{- end }}
+{{- if .Values.kafka.enabled }}
+Kafka:        {{ .Values.global.namePrefix }}-kafka.{{ .Values.global.namespace }}:9092
+{{- end }}
+
+-----------------------------------------------------------------------
+  MICROSERVICES
+-----------------------------------------------------------------------
+
+{{- if .Values.apiGateway.enabled }}
+API Gateway:          {{ .Values.global.namePrefix }}-api-gateway.{{ .Values.global.namespace }}:8080
+{{- end }}
+{{- if .Values.userService.enabled }}
+User Service:         {{ .Values.global.namePrefix }}-user-service.{{ .Values.global.namespace }}:8080
+{{- end }}
+{{- if .Values.deviceService.enabled }}
+Device Service:       {{ .Values.global.namePrefix }}-device-service.{{ .Values.global.namespace }}:8080
+{{- end }}
+{{- if .Values.deviceIngest.enabled }}
+Device Ingest:        {{ .Values.global.namePrefix }}-device-ingest.{{ .Values.global.namespace }}:8080
+{{- end }}
+{{- if .Values.eventProcessor.enabled }}
+Event Processor:      {{ .Values.global.namePrefix }}-event-processor.{{ .Values.global.namespace }}:8080
+{{- end }}
+{{- if .Values.notificationService.enabled }}
+Notification Service: {{ .Values.global.namePrefix }}-notification-service.{{ .Values.global.namespace }}:8080
+{{- end }}
+{{- if .Values.scenarioEngine.enabled }}
+Scenario Engine:      {{ .Values.global.namePrefix }}-scenario-engine.{{ .Values.global.namespace }}:8080
+{{- end }}
+{{- if .Values.agenticAi.enabled }}
+Agentic AI:           {{ .Values.global.namePrefix }}-agentic-ai.{{ .Values.global.namespace }}:8080
+{{- end }}
+
+-----------------------------------------------------------------------
+  USEFUL COMMANDS
+-----------------------------------------------------------------------
+
+# Check pod status
+kubectl get pods -n {{ .Values.global.namespace }}
+
+# View logs for a service
+kubectl logs -n {{ .Values.global.namespace }} -l app={{ .Values.global.namePrefix }}-api-gateway
+
+# Port forward to a service
+kubectl port-forward -n {{ .Values.global.namespace }} svc/{{ .Values.global.namePrefix }}-api-gateway 8080:8080
+
+# Upgrade the release
+helm upgrade {{ .Release.Name }} ./iot-homeguard -f values-{{ .Values.global.environment.name }}.yaml
+
+# Uninstall
+helm uninstall {{ .Release.Name }} -n {{ .Values.global.namespace }}
+
+=======================================================================

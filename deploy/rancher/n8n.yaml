@@ -1,0 +1,380 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: n8n
+  namespace: homeguard-automation
+  labels:
+    app: n8n
+    component: automation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: n8n
+  template:
+    metadata:
+      labels:
+        app: n8n
+    spec:
+      containers:
+      - name: n8n
+        image: n8nio/n8n:latest
+        ports:
+        - containerPort: 5678
+          name: http
+        env:
+        - name: N8N_BASIC_AUTH_ACTIVE
+          value: "true"
+        - name: N8N_BASIC_AUTH_USER
+          value: "admin"
+        - name: N8N_BASIC_AUTH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: n8n-secret
+              key: password
+        - name: N8N_HOST
+          value: "n8n.localhost"
+        - name: N8N_PORT
+          value: "5678"
+        - name: N8N_PROTOCOL
+          value: "http"
+        - name: WEBHOOK_URL
+          value: "http://n8n.homeguard-automation.svc.cluster.local:5678/"
+        - name: GENERIC_TIMEZONE
+          value: "America/New_York"
+        - name: N8N_LOG_LEVEL
+          value: "info"
+        - name: N8N_METRICS
+          value: "true"
+        - name: N8N_DIAGNOSTICS_ENABLED
+          value: "false"
+        - name: N8N_HIRING_BANNER_ENABLED
+          value: "false"
+        # Database settings (using SQLite for simplicity)
+        - name: DB_TYPE
+          value: "sqlite"
+        - name: DB_SQLITE_DATABASE
+          value: "/home/node/.n8n/database.sqlite"
+        volumeMounts:
+        - name: data
+          mountPath: /home/node/.n8n
+        - name: workflows
+          mountPath: /home/node/.n8n/workflows
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 5678
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 5678
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: n8n-pvc
+      - name: workflows
+        configMap:
+          name: n8n-workflows
+          optional: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: n8n
+  namespace: homeguard-automation
+  labels:
+    app: n8n
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5678
+    targetPort: 5678
+    name: http
+  selector:
+    app: n8n
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: n8n-pvc
+  namespace: homeguard-automation
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: n8n-secret
+  namespace: homeguard-automation
+type: Opaque
+stringData:
+  password: "homeguard-n8n-2024"
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: n8n-ingress
+  namespace: homeguard-automation
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: n8n.localhost
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: n8n
+            port:
+              number: 5678
+---
+# Pre-configured workflows for HomeGuard
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: n8n-workflows
+  namespace: homeguard-automation
+data:
+  motion-alert-workflow.json: |
+    {
+      "name": "Motion Alert at Night",
+      "nodes": [
+        {
+          "parameters": {
+            "httpMethod": "POST",
+            "path": "motion-alert",
+            "responseMode": "onReceived",
+            "responseData": "allEntries"
+          },
+          "name": "Webhook",
+          "type": "n8n-nodes-base.webhook",
+          "typeVersion": 1,
+          "position": [250, 300]
+        },
+        {
+          "parameters": {
+            "conditions": {
+              "number": [
+                {
+                  "value1": "={{$json[\"hour\"]}}",
+                  "operation": "largerEqual",
+                  "value2": 22
+                }
+              ]
+            }
+          },
+          "name": "Is Night Time?",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "position": [450, 300]
+        },
+        {
+          "parameters": {
+            "url": "http://notification-service.homeguard-apps:8080/notify",
+            "method": "POST",
+            "bodyParameters": {
+              "parameters": [
+                {
+                  "name": "user_id",
+                  "value": "={{$json[\"user_id\"]}}"
+                },
+                {
+                  "name": "type",
+                  "value": "motion_alert"
+                },
+                {
+                  "name": "message",
+                  "value": "Motion detected at night: {{$json[\"device_name\"]}}"
+                }
+              ]
+            }
+          },
+          "name": "Send Alert",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 3,
+          "position": [650, 250]
+        }
+      ],
+      "connections": {
+        "Webhook": {
+          "main": [[{"node": "Is Night Time?", "type": "main", "index": 0}]]
+        },
+        "Is Night Time?": {
+          "main": [[{"node": "Send Alert", "type": "main", "index": 0}], []]
+        }
+      }
+    }
+
+  device-offline-workflow.json: |
+    {
+      "name": "Device Offline Escalation",
+      "nodes": [
+        {
+          "parameters": {
+            "httpMethod": "POST",
+            "path": "device-offline",
+            "responseMode": "onReceived"
+          },
+          "name": "Webhook",
+          "type": "n8n-nodes-base.webhook",
+          "typeVersion": 1,
+          "position": [250, 300]
+        },
+        {
+          "parameters": {
+            "amount": 2,
+            "unit": "minutes"
+          },
+          "name": "Wait 2 Minutes",
+          "type": "n8n-nodes-base.wait",
+          "typeVersion": 1,
+          "position": [450, 300]
+        },
+        {
+          "parameters": {
+            "url": "http://device-service.homeguard-apps:8080/devices/{{$json[\"device_id\"]}}/status",
+            "method": "GET"
+          },
+          "name": "Check Device Status",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 3,
+          "position": [650, 300]
+        },
+        {
+          "parameters": {
+            "conditions": {
+              "boolean": [
+                {
+                  "value1": "={{$json[\"online\"]}}",
+                  "value2": false
+                }
+              ]
+            }
+          },
+          "name": "Still Offline?",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "position": [850, 300]
+        },
+        {
+          "parameters": {
+            "url": "http://notification-service.homeguard-apps:8080/notify",
+            "method": "POST",
+            "bodyParameters": {
+              "parameters": [
+                {
+                  "name": "user_id",
+                  "value": "={{$json[\"user_id\"]}}"
+                },
+                {
+                  "name": "type",
+                  "value": "device_offline"
+                },
+                {
+                  "name": "message",
+                  "value": "Device {{$json[\"device_name\"]}} has been offline for 2 minutes"
+                },
+                {
+                  "name": "severity",
+                  "value": "warning"
+                }
+              ]
+            }
+          },
+          "name": "Notify User",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 3,
+          "position": [1050, 250]
+        }
+      ],
+      "connections": {
+        "Webhook": {
+          "main": [[{"node": "Wait 2 Minutes", "type": "main", "index": 0}]]
+        },
+        "Wait 2 Minutes": {
+          "main": [[{"node": "Check Device Status", "type": "main", "index": 0}]]
+        },
+        "Check Device Status": {
+          "main": [[{"node": "Still Offline?", "type": "main", "index": 0}]]
+        },
+        "Still Offline?": {
+          "main": [[{"node": "Notify User", "type": "main", "index": 0}], []]
+        }
+      }
+    }
+
+  daily-summary-workflow.json: |
+    {
+      "name": "Daily Summary Report",
+      "nodes": [
+        {
+          "parameters": {
+            "rule": {
+              "interval": [{"field": "hours", "hoursInterval": 24}]
+            }
+          },
+          "name": "Daily Trigger",
+          "type": "n8n-nodes-base.scheduleTrigger",
+          "typeVersion": 1,
+          "position": [250, 300]
+        },
+        {
+          "parameters": {
+            "url": "http://analytics-service.homeguard-apps:8080/summary/daily",
+            "method": "GET"
+          },
+          "name": "Get Daily Summary",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 3,
+          "position": [450, 300]
+        },
+        {
+          "parameters": {
+            "url": "http://notification-service.homeguard-apps:8080/broadcast",
+            "method": "POST",
+            "bodyParameters": {
+              "parameters": [
+                {
+                  "name": "type",
+                  "value": "daily_summary"
+                },
+                {
+                  "name": "data",
+                  "value": "={{JSON.stringify($json)}}"
+                }
+              ]
+            }
+          },
+          "name": "Send Summary",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 3,
+          "position": [650, 300]
+        }
+      ],
+      "connections": {
+        "Daily Trigger": {
+          "main": [[{"node": "Get Daily Summary", "type": "main", "index": 0}]]
+        },
+        "Get Daily Summary": {
+          "main": [[{"node": "Send Summary", "type": "main", "index": 0}]]
+        }
+      }
+    }

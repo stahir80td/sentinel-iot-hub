@@ -1,0 +1,92 @@
+{{- if .Values.timescaledb.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.global.namePrefix }}-timescaledb-data
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-timescaledb
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.timescaledb.storage.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.global.namePrefix }}-timescaledb
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-timescaledb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.global.namePrefix }}-timescaledb
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.global.namePrefix }}-timescaledb
+    spec:
+      containers:
+        - name: timescaledb
+          image: {{ .Values.timescaledb.image }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.timescaledb.auth.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.timescaledb.auth.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.namePrefix }}-secrets
+                  key: timescaledb-password
+          resources:
+            {{- toYaml .Values.timescaledb.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.timescaledb.auth.username }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.timescaledb.auth.username }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.global.namePrefix }}-timescaledb-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.global.namePrefix }}-timescaledb
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-timescaledb
+spec:
+  selector:
+    app: {{ .Values.global.namePrefix }}-timescaledb
+  ports:
+    - port: 5432
+      targetPort: 5432
+{{- end }}

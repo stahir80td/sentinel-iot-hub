@@ -1,0 +1,99 @@
+# Production environment values
+# Usage: helm install iot-homeguard ./iot-homeguard -f values-production.yaml --set agenticAi.geminiApiKey=xxx
+
+global:
+  namePrefix: "iot"
+  namespace: "iot-production"
+
+  environment:
+    name: "production"
+    baseDomain: "iot.yourdomain.com"
+
+    tls:
+      enabled: true
+      issuerName: "letsencrypt-prod"
+      issuerKind: "ClusterIssuer"
+
+    publicUrls:
+      frontend: "https://iot.yourdomain.com"
+      api: "https://iot.yourdomain.com/api"
+      grafana: "https://grafana.iot.yourdomain.com"
+      n8n: "https://n8n.iot.yourdomain.com"
+      prometheus: "https://prometheus.iot.yourdomain.com"
+
+ingress:
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+# Production resource allocations
+postgresql:
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  storage:
+    size: 10Gi
+
+mongodb:
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  storage:
+    size: 10Gi
+
+redis:
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  storage:
+    size: 2Gi
+
+kafka:
+  replicas: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  storage:
+    size: 10Gi
+
+# Application replicas for HA
+frontend:
+  replicas: 2
+
+apiGateway:
+  replicas: 3
+
+userService:
+  replicas: 2
+
+deviceService:
+  replicas: 2
+
+deviceIngest:
+  replicas: 3
+
+eventProcessor:
+  replicas: 2
+
+notificationService:
+  replicas: 2
+
+# Production secrets - override these!
+secrets:
+  jwtSecret: "CHANGE-THIS-IN-PRODUCTION-USE-A-REAL-SECRET-KEY"
