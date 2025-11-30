@@ -80,4 +80,56 @@ spec:
                 port:
                   number: 9090
     {{- end }}
+    {{- if .Values.adminUIs.pgadmin.enabled }}
+    # pgAdmin - PostgreSQL/TimescaleDB management
+    - host: {{ .Values.ingress.hosts.pgadmin | default (printf "pgadmin.%s" .Values.global.environment.baseDomain) }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.global.namePrefix }}-pgadmin
+                port:
+                  number: 80
+    {{- end }}
+    {{- if .Values.adminUIs.mongoExpress.enabled }}
+    # Mongo Express - MongoDB management
+    - host: {{ .Values.ingress.hosts.mongo | default (printf "mongo.%s" .Values.global.environment.baseDomain) }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.global.namePrefix }}-mongo-express
+                port:
+                  number: 8081
+    {{- end }}
+    {{- if .Values.adminUIs.redisCommander.enabled }}
+    # Redis Commander - Redis management
+    - host: {{ .Values.ingress.hosts.redis | default (printf "redis.%s" .Values.global.environment.baseDomain) }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.global.namePrefix }}-redis-commander
+                port:
+                  number: 8081
+    {{- end }}
+    {{- if .Values.adminUIs.kafkaUI.enabled }}
+    # Kafka UI - Kafka management
+    - host: {{ .Values.ingress.hosts.kafka | default (printf "kafka.%s" .Values.global.environment.baseDomain) }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.global.namePrefix }}-kafka-ui
+                port:
+                  number: 8080
+    {{- end }}
 {{- end }}

@@ -47,3 +47,7 @@ kafka:
     limits:
       cpu: 500m
       memory: 1Gi
+
+# N8N - disable secure cookie for local HTTP
+n8n:
+  secureCookie: false

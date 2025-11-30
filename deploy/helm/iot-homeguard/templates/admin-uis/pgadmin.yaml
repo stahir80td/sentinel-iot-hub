@@ -1,0 +1,117 @@
+{{- if .Values.adminUIs.pgadmin.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.global.namePrefix }}-pgadmin-data
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-pgadmin
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.adminUIs.pgadmin.storage.size | default "1Gi" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.global.namePrefix }}-pgadmin-servers
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-pgadmin
+data:
+  servers.json: |
+    {
+      "Servers": {
+        "1": {
+          "Name": "PostgreSQL (Users)",
+          "Group": "HomeGuard",
+          "Host": "{{ .Values.global.namePrefix }}-postgresql",
+          "Port": 5432,
+          "MaintenanceDB": "homeguard",
+          "Username": "{{ .Values.postgresql.auth.username }}",
+          "SSLMode": "prefer"
+        },
+        "2": {
+          "Name": "TimescaleDB (Analytics)",
+          "Group": "HomeGuard",
+          "Host": "{{ .Values.global.namePrefix }}-timescaledb",
+          "Port": 5432,
+          "MaintenanceDB": "homeguard_analytics",
+          "Username": "{{ .Values.timescaledb.auth.username }}",
+          "SSLMode": "prefer"
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.global.namePrefix }}-pgadmin
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-pgadmin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.global.namePrefix }}-pgadmin
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.global.namePrefix }}-pgadmin
+    spec:
+      containers:
+        - name: pgadmin
+          image: {{ .Values.adminUIs.pgadmin.image | default "dpage/pgadmin4:latest" }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: 80
+          env:
+            - name: PGADMIN_DEFAULT_EMAIL
+              value: {{ .Values.adminUIs.pgadmin.auth.email | quote }}
+            - name: PGADMIN_DEFAULT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.namePrefix }}-secrets
+                  key: pgadmin-password
+            - name: PGADMIN_CONFIG_SERVER_MODE
+              value: "True"
+            - name: PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED
+              value: "False"
+          resources:
+            {{- toYaml .Values.adminUIs.pgadmin.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/pgadmin
+            - name: servers-config
+              mountPath: /pgadmin4/servers.json
+              subPath: servers.json
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.global.namePrefix }}-pgadmin-data
+        - name: servers-config
+          configMap:
+            name: {{ .Values.global.namePrefix }}-pgadmin-servers
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.global.namePrefix }}-pgadmin
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-pgadmin
+spec:
+  selector:
+    app: {{ .Values.global.namePrefix }}-pgadmin
+  ports:
+    - port: 80
+      targetPort: 80
+{{- end }}

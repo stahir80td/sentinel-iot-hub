@@ -191,6 +191,7 @@ grafana:
 n8n:
   enabled: true
   image: n8nio/n8n:latest
+  secureCookie: true  # Set to false for local HTTP development
   auth:
     username: admin
     password: homeguard-n8n-2024
@@ -328,6 +329,73 @@ agenticAi:
     limits:
       cpu: 500m
       memory: 256Mi
+
+# =============================================================================
+# ADMIN UIs - Database management interfaces
+# =============================================================================
+
+adminUIs:
+  # pgAdmin - PostgreSQL and TimescaleDB management
+  pgadmin:
+    enabled: true
+    image: dpage/pgadmin4:latest
+    auth:
+      email: admin@homeguard.io
+      password: homeguard-pgadmin-2024
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    storage:
+      size: 500Mi
+
+  # Mongo Express - MongoDB management
+  mongoExpress:
+    enabled: true
+    image: mongo-express:1.0.2-20-alpine3.19
+    auth:
+      username: admin
+      password: homeguard-mongo-express-2024
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+
+  # Redis Commander - Redis management
+  redisCommander:
+    enabled: true
+    image: rediscommander/redis-commander:latest
+    auth:
+      username: admin
+      password: homeguard-redis-commander-2024
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+
+  # Kafka UI - Kafka management (Provectus)
+  kafkaUI:
+    enabled: true
+    image: provectuslabs/kafka-ui:latest
+    auth:
+      username: admin
+      password: homeguard-kafka-ui-2024
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
 
 # =============================================================================
 # INGRESS

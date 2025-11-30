@@ -40,21 +40,21 @@ spec:
           ports:
             - containerPort: 5678
           env:
-            - name: N8N_BASIC_AUTH_ACTIVE
+            # N8N 1.0+ uses user management instead of basic auth
+            - name: N8N_USER_MANAGEMENT_DISABLED
               value: "true"
-            - name: N8N_BASIC_AUTH_USER
-              value: {{ .Values.n8n.auth.username | quote }}
-            - name: N8N_BASIC_AUTH_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.global.namePrefix }}-secrets
-                  key: n8n-password
             - name: N8N_HOST
               value: {{ .Values.global.environment.publicUrls.n8n | quote }}
             - name: WEBHOOK_URL
               value: {{ .Values.global.environment.publicUrls.n8n | quote }}
             - name: GENERIC_TIMEZONE
               value: "UTC"
+            - name: N8N_SECURE_COOKIE
+              value: {{ .Values.n8n.secureCookie | quote }}
+            - name: N8N_DIAGNOSTICS_ENABLED
+              value: "false"
+            - name: N8N_PERSONALIZATION_ENABLED
+              value: "false"
           resources:
             {{- toYaml .Values.n8n.resources | nindent 12 }}
           volumeMounts:
@@ -64,14 +64,17 @@ spec:
             httpGet:
               path: /healthz
               port: 5678
-            initialDelaySeconds: 30
-            periodSeconds: 10
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 5
           readinessProbe:
             httpGet:
               path: /healthz
               port: 5678
-            initialDelaySeconds: 5
-            periodSeconds: 5
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
       volumes:
         - name: data
           persistentVolumeClaim:

@@ -21,6 +21,14 @@ Grafana (Dashboards):       http://grafana.homeguard.localhost
 Prometheus (Metrics):       http://prometheus.homeguard.localhost
 N8N (Workflow Automation):  http://n8n.homeguard.localhost
 
+DATABASE ADMIN UIs (Polyglot Demo)
+--------------------------------------------------------------------------------
+pgAdmin (PostgreSQL/TimescaleDB):  http://pgadmin.homeguard.localhost
+Mongo Express (MongoDB):           http://mongo.homeguard.localhost
+Redis Commander (Redis):           http://redis.homeguard.localhost
+Kafka UI (Kafka):                  http://kafka.homeguard.localhost
+ScyllaDB (No Web UI):              Use cqlsh via kubectl (see commands below)
+
 NOTE: These URLs work via Traefik Ingress. You may need to add entries to your
 hosts file if DNS doesn't resolve:
 
@@ -28,6 +36,10 @@ hosts file if DNS doesn't resolve:
     127.0.0.1 grafana.homeguard.localhost
     127.0.0.1 prometheus.homeguard.localhost
     127.0.0.1 n8n.homeguard.localhost
+    127.0.0.1 pgadmin.homeguard.localhost
+    127.0.0.1 mongo.homeguard.localhost
+    127.0.0.1 redis.homeguard.localhost
+    127.0.0.1 kafka.homeguard.localhost
 
 ================================================================================
                               LOGIN CREDENTIALS
@@ -55,8 +67,28 @@ GRAFANA (grafana.homeguard.localhost)
 
 N8N WORKFLOW AUTOMATION (n8n.homeguard.localhost)
 --------------------------------------------------------------------------------
+    Email:    admin@homeguard.io
+    Password: Homeguard123
+
+PGADMIN (pgadmin.homeguard.localhost)
+--------------------------------------------------------------------------------
+    Email:    admin@homeguard.io
+    Password: homeguard-pgadmin-2024
+
+MONGO EXPRESS (mongo.homeguard.localhost)
+--------------------------------------------------------------------------------
     Username: admin
-    Password: homeguard-n8n-2024
+    Password: homeguard-mongo-express-2024
+
+REDIS COMMANDER (redis.homeguard.localhost)
+--------------------------------------------------------------------------------
+    Username: admin
+    Password: homeguard-redis-commander-2024
+
+KAFKA UI (kafka.homeguard.localhost)
+--------------------------------------------------------------------------------
+    Username: admin
+    Password: homeguard-kafka-ui-2024
 
 ================================================================================
                               DATABASE CREDENTIALS
@@ -168,6 +200,16 @@ powershell -ExecutionPolicy Bypass -File tests/smoke/smoke-test-local.ps1
 
 # Seed demo data (users, devices)
 powershell -ExecutionPolicy Bypass -File scripts/seed-data.ps1
+
+# ScyllaDB Access (CQL Shell)
+kubectl exec -it -n sandbox $(kubectl get pod -n sandbox -l app=iot-scylladb -o jsonpath='{.items[0].metadata.name}') -- cqlsh
+
+# ScyllaDB useful cqlsh commands:
+#   DESCRIBE KEYSPACES;                    -- List all keyspaces
+#   USE homeguard;                         -- Switch to homeguard keyspace
+#   DESCRIBE TABLES;                       -- List tables in current keyspace
+#   SELECT * FROM events LIMIT 10;         -- Query events table
+#   SELECT COUNT(*) FROM events;           -- Count records
 
 ================================================================================
                               HELM DEPLOYMENT

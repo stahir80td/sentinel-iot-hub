@@ -1,0 +1,66 @@
+{{- if .Values.adminUIs.redisCommander.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.global.namePrefix }}-redis-commander
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-redis-commander
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.global.namePrefix }}-redis-commander
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.global.namePrefix }}-redis-commander
+    spec:
+      containers:
+        - name: redis-commander
+          image: {{ .Values.adminUIs.redisCommander.image | default "rediscommander/redis-commander:latest" }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: 8081
+          env:
+            - name: REDIS_HOSTS
+              value: "local:{{ .Values.global.namePrefix }}-redis:6379"
+            - name: HTTP_USER
+              value: {{ .Values.adminUIs.redisCommander.auth.username | quote }}
+            - name: HTTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.namePrefix }}-secrets
+                  key: redis-commander-password
+          resources:
+            {{- toYaml .Values.adminUIs.redisCommander.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.global.namePrefix }}-redis-commander
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "iot-homeguard.labels" . | nindent 4 }}
+    app: {{ .Values.global.namePrefix }}-redis-commander
+spec:
+  selector:
+    app: {{ .Values.global.namePrefix }}-redis-commander
+  ports:
+    - port: 8081
+      targetPort: 8081
+{{- end }}
