@@ -33,6 +33,7 @@ type Config struct {
 	NotificationServiceURL string
 	AnalyticsServiceURL    string
 	AgenticAIURL           string
+	ScenarioEngineURL      string
 	RateLimitPerMinute     int
 	RateLimitBurst         int
 }
@@ -94,6 +95,7 @@ func loadConfig() *Config {
 		NotificationServiceURL: getEnv("NOTIFICATION_SERVICE_URL", "http://notification-service:8080"),
 		AnalyticsServiceURL:    getEnv("ANALYTICS_SERVICE_URL", "http://analytics-service:8080"),
 		AgenticAIURL:           getEnv("AGENTIC_AI_URL", "http://agentic-ai:8080"),
+		ScenarioEngineURL:      getEnv("SCENARIO_ENGINE_URL", "http://scenario-engine:8080"),
 		RateLimitPerMinute:     getEnvInt("RATE_LIMIT_REQUESTS_PER_MINUTE", 100),
 		RateLimitBurst:         getEnvInt("RATE_LIMIT_BURST", 20),
 	}
@@ -165,7 +167,10 @@ func (g *Gateway) SetupRoutes() {
 	// Metrics
 	g.router.Handle("/metrics", promhttp.Handler())
 
-	// Public routes (no auth)
+	// Public routes (no auth) - support both /api and /api/v1 prefixes
+	g.router.HandleFunc("/api/auth/login", g.proxyHandler(g.config.UserServiceURL)).Methods("POST")
+	g.router.HandleFunc("/api/auth/register", g.proxyHandler(g.config.UserServiceURL)).Methods("POST")
+	g.router.HandleFunc("/api/auth/refresh", g.proxyHandler(g.config.UserServiceURL)).Methods("POST")
 	g.router.HandleFunc("/api/v1/auth/login", g.proxyHandler(g.config.UserServiceURL)).Methods("POST")
 	g.router.HandleFunc("/api/v1/auth/register", g.proxyHandler(g.config.UserServiceURL)).Methods("POST")
 	g.router.HandleFunc("/api/v1/auth/refresh", g.proxyHandler(g.config.UserServiceURL)).Methods("POST")
@@ -173,40 +178,53 @@ func (g *Gateway) SetupRoutes() {
 	// Device ingestion (device-token auth, not user JWT)
 	g.router.HandleFunc("/api/v1/ingest/{path:.*}", g.deviceAuthMiddleware(g.proxyHandler(g.config.DeviceIngestURL))).Methods("POST")
 
-	// Protected routes (require JWT)
-	api := g.router.PathPrefix("/api/v1").Subrouter()
+	// Protected routes (require JWT) - support both /api and /api/v1 prefixes
+	apiV1 := g.router.PathPrefix("/api/v1").Subrouter()
+	apiV1.Use(g.authMiddleware)
+	apiV1.Use(g.rateLimitMiddleware)
+
+	api := g.router.PathPrefix("/api").Subrouter()
 	api.Use(g.authMiddleware)
 	api.Use(g.rateLimitMiddleware)
 
-	// User routes
-	api.HandleFunc("/users/me", g.proxyHandler(g.config.UserServiceURL)).Methods("GET", "PUT")
-	api.HandleFunc("/users/{id}", g.proxyHandler(g.config.UserServiceURL)).Methods("GET")
+	// Register routes for both prefixes
+	for _, r := range []*mux.Router{api, apiV1} {
+		// User routes
+		r.HandleFunc("/users/me", g.proxyHandler(g.config.UserServiceURL)).Methods("GET", "PUT")
+		r.HandleFunc("/users/{id}", g.proxyHandler(g.config.UserServiceURL)).Methods("GET")
 
-	// Device routes
-	api.HandleFunc("/devices", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET", "POST")
-	api.HandleFunc("/devices/{id}", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET", "PUT", "DELETE")
-	api.HandleFunc("/devices/{id}/command", g.proxyHandler(g.config.DeviceServiceURL)).Methods("POST")
-	api.HandleFunc("/devices/{id}/status", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET")
-	api.HandleFunc("/devices/{id}/events", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET")
+		// Device routes
+		r.HandleFunc("/devices", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET", "POST")
+		r.HandleFunc("/devices/{id}", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET", "PUT", "DELETE")
+		r.HandleFunc("/devices/{id}/command", g.proxyHandler(g.config.DeviceServiceURL)).Methods("POST")
+		r.HandleFunc("/devices/{id}/status", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET")
+		r.HandleFunc("/devices/{id}/events", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET")
 
-	// Notification routes
-	api.HandleFunc("/notifications", g.proxyHandler(g.config.NotificationServiceURL)).Methods("GET")
-	api.HandleFunc("/notifications/{id}/read", g.proxyHandler(g.config.NotificationServiceURL)).Methods("PUT")
-	api.HandleFunc("/notifications/preferences", g.proxyHandler(g.config.NotificationServiceURL)).Methods("GET", "PUT")
+		// Notification routes
+		r.HandleFunc("/notifications", g.proxyHandler(g.config.NotificationServiceURL)).Methods("GET")
+		r.HandleFunc("/notifications/{id}/read", g.proxyHandler(g.config.NotificationServiceURL)).Methods("PUT")
+		r.HandleFunc("/notifications/preferences", g.proxyHandler(g.config.NotificationServiceURL)).Methods("GET", "PUT")
 
-	// Analytics routes
-	api.HandleFunc("/analytics/summary", g.proxyHandler(g.config.AnalyticsServiceURL)).Methods("GET")
-	api.HandleFunc("/analytics/devices/{id}", g.proxyHandler(g.config.AnalyticsServiceURL)).Methods("GET")
-	api.HandleFunc("/analytics/trends", g.proxyHandler(g.config.AnalyticsServiceURL)).Methods("GET")
+		// Analytics routes
+		r.HandleFunc("/analytics/summary", g.proxyHandler(g.config.AnalyticsServiceURL)).Methods("GET")
+		r.HandleFunc("/analytics/devices/{id}", g.proxyHandler(g.config.AnalyticsServiceURL)).Methods("GET")
+		r.HandleFunc("/analytics/trends", g.proxyHandler(g.config.AnalyticsServiceURL)).Methods("GET")
 
-	// AI Agent routes
-	api.HandleFunc("/agent/chat", g.proxyHandler(g.config.AgenticAIURL)).Methods("POST")
-	api.HandleFunc("/agent/stream", g.proxyHandler(g.config.AgenticAIURL)).Methods("POST")
-	api.HandleFunc("/agent/history", g.proxyHandler(g.config.AgenticAIURL)).Methods("GET")
-	api.HandleFunc("/agent/suggestions", g.proxyHandler(g.config.AgenticAIURL)).Methods("GET")
+		// AI Agent routes
+		r.HandleFunc("/agent/chat", g.proxyHandler(g.config.AgenticAIURL)).Methods("POST")
+		r.HandleFunc("/agent/stream", g.proxyHandler(g.config.AgenticAIURL)).Methods("POST")
+		r.HandleFunc("/agent/history", g.proxyHandler(g.config.AgenticAIURL)).Methods("GET", "DELETE")
+		r.HandleFunc("/agent/suggestions", g.proxyHandler(g.config.AgenticAIURL)).Methods("GET")
 
-	// WebSocket for real-time updates
-	api.HandleFunc("/ws", g.websocketHandler).Methods("GET")
+		// Scenario/Automation routes
+		r.HandleFunc("/scenarios", g.proxyHandler(g.config.ScenarioEngineURL)).Methods("GET", "POST")
+		r.HandleFunc("/scenarios/{id}", g.proxyHandler(g.config.ScenarioEngineURL)).Methods("GET", "PUT", "DELETE")
+		r.HandleFunc("/scenarios/{id}/enable", g.proxyHandler(g.config.ScenarioEngineURL)).Methods("POST")
+		r.HandleFunc("/scenarios/{id}/disable", g.proxyHandler(g.config.ScenarioEngineURL)).Methods("POST")
+
+		// WebSocket for real-time updates
+		r.HandleFunc("/ws", g.websocketHandler).Methods("GET")
+	}
 }
 
 func (g *Gateway) healthCheck(w http.ResponseWriter, r *http.Request) {
@@ -336,10 +354,12 @@ func (g *Gateway) proxyHandler(targetURL string) http.HandlerFunc {
 			req.URL.Host = target.Host
 			req.Host = target.Host
 
-			// Preserve the original path
-			if strings.HasPrefix(r.URL.Path, "/api/v1/") {
-				// Strip /api/v1 prefix for downstream services
-				req.URL.Path = strings.TrimPrefix(r.URL.Path, "/api/v1")
+			// Strip /api or /api/v1 prefix for downstream services
+			path := r.URL.Path
+			if strings.HasPrefix(path, "/api/v1/") {
+				req.URL.Path = strings.TrimPrefix(path, "/api/v1")
+			} else if strings.HasPrefix(path, "/api/") {
+				req.URL.Path = strings.TrimPrefix(path, "/api")
 			}
 		}
 

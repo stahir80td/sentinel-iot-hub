@@ -39,9 +39,9 @@ export const automationService = {
 }
 
 export const aiService = {
-  chat: (message: string) => api.post('/api/ai/chat', { message }),
-  getHistory: () => api.get('/api/ai/history'),
-  clearHistory: () => api.delete('/api/ai/history'),
+  chat: (message: string) => api.post('/api/agent/chat', { message }),
+  getHistory: () => api.get('/api/agent/history'),
+  clearHistory: () => api.delete('/api/agent/history'),
 }
 
 export const notificationService = {

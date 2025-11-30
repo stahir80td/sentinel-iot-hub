@@ -23,7 +23,13 @@
       "Bash(git -C \"C:/agents/iot\" status --short)",
       "Bash(git -C \"C:/agents/iot\" remote -v)",
       "Bash(git add:*)",
-      "Bash(del nul)"
+      "Bash(del nul)",
+      "Bash(powershell:*)",
+      "Bash(tree:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(git rm:*)",
+      "Bash(python -m json.tool:*)"
     ],
     "deny": [],
     "ask": []

@@ -8,7 +8,8 @@ interface Message {
   content: string
   timestamp: Date
   toolCalls?: {
-    name: string
+    tool: string
+    args: any
     result: any
   }[]
 }
@@ -67,9 +68,9 @@ export default function AIAssistant() {
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: response.data.response,
+        content: response.data.message,
         timestamp: new Date(),
-        toolCalls: response.data.tool_calls,
+        toolCalls: response.data.actions_taken,
       }
       setMessages((prev) => [...prev, assistantMessage])
     } catch (error) {
@@ -164,12 +165,12 @@ export default function AIAssistant() {
                   {message.toolCalls && message.toolCalls.length > 0 && (
                     <div className="mt-2 pt-2 border-t border-gray-200">
                       <p className="text-xs font-medium mb-1">Actions taken:</p>
-                      {message.toolCalls.map((tool, idx) => (
+                      {message.toolCalls.map((action, idx) => (
                         <div
                           key={idx}
                           className="text-xs bg-white/20 rounded px-2 py-1 mb-1"
                         >
-                          {tool.name}
+                          {action.tool}
                         </div>
                       ))}
                     </div>

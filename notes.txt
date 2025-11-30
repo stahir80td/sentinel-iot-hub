@@ -1,0 +1,268 @@
+================================================================================
+                    HOMEGUARD IOT PLATFORM - LOCAL ACCESS GUIDE
+================================================================================
+
+Last Updated: November 2024
+Environment: Local (Rancher Desktop / Docker Desktop with Kubernetes)
+Namespace: sandbox
+
+================================================================================
+                              WEB APPLICATION URLS
+================================================================================
+
+MAIN APPLICATION
+--------------------------------------------------------------------------------
+Frontend (React UI):        http://homeguard.localhost
+API Gateway:                http://homeguard.localhost/api
+
+MONITORING & ADMINISTRATION
+--------------------------------------------------------------------------------
+Grafana (Dashboards):       http://grafana.homeguard.localhost
+Prometheus (Metrics):       http://prometheus.homeguard.localhost
+N8N (Workflow Automation):  http://n8n.homeguard.localhost
+
+NOTE: These URLs work via Traefik Ingress. You may need to add entries to your
+hosts file if DNS doesn't resolve:
+
+    127.0.0.1 homeguard.localhost
+    127.0.0.1 grafana.homeguard.localhost
+    127.0.0.1 prometheus.homeguard.localhost
+    127.0.0.1 n8n.homeguard.localhost
+
+================================================================================
+                              LOGIN CREDENTIALS
+================================================================================
+
+FRONTEND APPLICATION (homeguard.localhost)
+--------------------------------------------------------------------------------
+Demo Users (pre-seeded):
+    Email:    john@demo.com
+    Password: demo1234
+
+    Email:    sarah@demo.com
+    Password: demo1234
+
+    Email:    admin@demo.com
+    Password: demo1234
+
+    Email:    guest@demo.com
+    Password: guest123
+
+GRAFANA (grafana.homeguard.localhost)
+--------------------------------------------------------------------------------
+    Username: admin
+    Password: homeguard-grafana-2024
+
+N8N WORKFLOW AUTOMATION (n8n.homeguard.localhost)
+--------------------------------------------------------------------------------
+    Username: admin
+    Password: homeguard-n8n-2024
+
+================================================================================
+                              DATABASE CREDENTIALS
+================================================================================
+
+POSTGRESQL (User Data)
+--------------------------------------------------------------------------------
+    Host:     iot-postgresql.sandbox.svc.cluster.local
+    Port:     5432
+    Database: homeguard
+    Username: homeguard
+    Password: homeguard-pg-2024
+
+    Connection String:
+    postgresql://homeguard:homeguard-pg-2024@iot-postgresql:5432/homeguard
+
+MONGODB (Device Data)
+--------------------------------------------------------------------------------
+    Host:     iot-mongodb.sandbox.svc.cluster.local
+    Port:     27017
+    Database: homeguard
+    Username: root
+    Password: homeguard-mongo-2024
+
+    Connection String:
+    mongodb://root:homeguard-mongo-2024@iot-mongodb:27017/homeguard
+
+TIMESCALEDB (Time-Series Analytics)
+--------------------------------------------------------------------------------
+    Host:     iot-timescaledb.sandbox.svc.cluster.local
+    Port:     5432
+    Database: homeguard_analytics
+    Username: homeguard
+    Password: homeguard-ts-2024
+
+    Connection String:
+    postgresql://homeguard:homeguard-ts-2024@iot-timescaledb:5432/homeguard_analytics
+
+REDIS (Cache & Pub/Sub)
+--------------------------------------------------------------------------------
+    Host:     iot-redis.sandbox.svc.cluster.local
+    Port:     6379
+    Password: (none - auth disabled for local)
+
+    Connection String:
+    redis://iot-redis:6379
+
+SCYLLADB (Event Storage)
+--------------------------------------------------------------------------------
+    Host:     iot-scylladb.sandbox.svc.cluster.local
+    Port:     9042 (CQL)
+
+    cqlsh command:
+    kubectl exec -it -n sandbox $(kubectl get pod -n sandbox -l app=iot-scylladb -o jsonpath='{.items[0].metadata.name}') -- cqlsh
+
+================================================================================
+                              KAFKA (Event Streaming)
+================================================================================
+
+Bootstrap Server:  iot-kafka.sandbox.svc.cluster.local:9092
+
+Topics:
+    - device-events      (3 partitions)
+    - device-heartbeats  (3 partitions)
+    - device-alerts      (3 partitions)
+    - notifications      (3 partitions)
+    - analytics-events   (3 partitions)
+
+================================================================================
+                              MICROSERVICES (Internal)
+================================================================================
+
+All services run on port 8080 internally:
+
+Service                  Internal URL
+--------------------------------------------------------------------------------
+API Gateway              http://iot-api-gateway.sandbox.svc.cluster.local:8080
+User Service             http://iot-user-service.sandbox.svc.cluster.local:8080
+Device Service           http://iot-device-service.sandbox.svc.cluster.local:8080
+Device Ingest            http://iot-device-ingest.sandbox.svc.cluster.local:8080
+Event Processor          http://iot-event-processor.sandbox.svc.cluster.local:8080
+Notification Service     http://iot-notification-service.sandbox.svc.cluster.local:8080
+Scenario Engine          http://iot-scenario-engine.sandbox.svc.cluster.local:8080
+Agentic AI               http://iot-agentic-ai.sandbox.svc.cluster.local:8080
+Frontend                 http://iot-frontend.sandbox.svc.cluster.local:80
+
+================================================================================
+                              USEFUL KUBECTL COMMANDS
+================================================================================
+
+# View all pods
+kubectl get pods -n sandbox
+
+# View all services
+kubectl get svc -n sandbox
+
+# View logs for a service
+kubectl logs -n sandbox -l app=iot-api-gateway -f
+
+# Port-forward to access a service directly
+kubectl port-forward -n sandbox svc/iot-grafana 3000:3000
+kubectl port-forward -n sandbox svc/iot-api-gateway 8080:8080
+
+# Exec into a pod
+kubectl exec -it -n sandbox <pod-name> -- /bin/sh
+
+# Run smoke tests
+powershell -ExecutionPolicy Bypass -File tests/smoke/smoke-test-local.ps1
+
+# Seed demo data (users, devices)
+powershell -ExecutionPolicy Bypass -File scripts/seed-data.ps1
+
+================================================================================
+                              HELM DEPLOYMENT
+================================================================================
+
+# Deploy infrastructure (databases, messaging, monitoring)
+cd C:\agents\iot\deploy
+.\deploy.ps1 -Namespace sandbox
+
+# Deploy applications (microservices)
+.\deploy-apps.ps1 -Namespace sandbox
+
+# Deploy both with a single command
+.\deploy.ps1 -Namespace sandbox && .\deploy-apps.ps1 -Namespace sandbox
+
+# Uninstall
+helm uninstall iot-homeguard-apps -n sandbox
+helm uninstall iot-homeguard -n sandbox
+
+# Check Helm releases
+helm list -n sandbox
+
+================================================================================
+                              API ENDPOINTS
+================================================================================
+
+BASE URL: http://homeguard.localhost/api
+
+Authentication:
+    POST   /auth/login          - Login (returns JWT)
+    POST   /auth/register       - Register new user
+    GET    /users/me            - Get current user profile
+
+Devices:
+    GET    /devices             - List all devices
+    POST   /devices             - Create device
+    GET    /devices/{id}        - Get device by ID
+    PUT    /devices/{id}        - Update device
+    DELETE /devices/{id}        - Delete device
+    POST   /devices/{id}/command - Send command to device
+
+Events:
+    GET    /events              - Query events
+    GET    /events/stream       - WebSocket real-time events
+
+AI Assistant:
+    POST   /ai/chat             - Send message to AI
+    GET    /ai/chat/history     - Get conversation history
+
+Demo Scenarios:
+    GET    /demo/scenarios              - List scenarios
+    POST   /demo/scenarios/{name}/start - Start scenario
+    POST   /demo/scenarios/{name}/stop  - Stop scenario
+
+Health Checks (per service):
+    GET    /health              - Health status
+    GET    /ready               - Readiness probe
+    GET    /live                - Liveness probe
+
+================================================================================
+                              SECRETS & KEYS
+================================================================================
+
+JWT Secret:     homeguard-jwt-secret-change-in-production-2024-very-long-key
+
+Gemini API Key: Required for AI Assistant feature
+    1. Get key from: https://aistudio.google.com/apikey
+    2. Copy .env.example to .env
+    3. Set GEMINI_TEXT_API_KEY=your-key-here
+    4. Redeploy apps: .\deploy\deploy-apps.ps1
+
+================================================================================
+                              TROUBLESHOOTING
+================================================================================
+
+5. AI Assistant not working ("Sorry, I encountered an error"):
+   - Gemini API key not configured
+   - Fix: Set GEMINI_TEXT_API_KEY in .env file and redeploy
+   - Or: kubectl set env deployment/iot-agentic-ai -n sandbox GEMINI_TEXT_API_KEY=your-key
+
+1. Services not accessible via hostname:
+   - Add entries to C:\Windows\System32\drivers\etc\hosts (as admin)
+   - Or use kubectl port-forward
+
+2. Pods not starting:
+   - Check pod status: kubectl get pods -n sandbox
+   - Check logs: kubectl logs -n sandbox <pod-name>
+   - Check events: kubectl get events -n sandbox --sort-by='.lastTimestamp'
+
+3. Database connection issues:
+   - Ensure infrastructure pods are running first
+   - Check service endpoints: kubectl get endpoints -n sandbox
+
+4. Run smoke tests to verify everything is working:
+   cd C:\agents\iot
+   powershell -ExecutionPolicy Bypass -File tests/smoke/smoke-test-local.ps1
+
+================================================================================

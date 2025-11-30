@@ -9,6 +9,7 @@ import os
 import json
 import logging
 import httpx
+import asyncio
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from uuid import uuid4
@@ -131,11 +132,24 @@ TOOLS = [
                 },
                 "trigger": {
                     "type": "object",
-                    "description": "What triggers the automation"
+                    "description": "What triggers the automation",
+                    "properties": {
+                        "type": {"type": "string", "description": "Trigger type (e.g., 'device_event', 'schedule')"},
+                        "device_id": {"type": "string", "description": "Device ID for device-based triggers"},
+                        "event": {"type": "string", "description": "Event name to trigger on"}
+                    }
                 },
                 "actions": {
                     "type": "array",
-                    "description": "Actions to perform when triggered"
+                    "description": "Actions to perform when triggered",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "type": {"type": "string", "description": "Action type (e.g., 'device_command', 'notification')"},
+                            "device_id": {"type": "string", "description": "Target device ID"},
+                            "command": {"type": "string", "description": "Command to send"}
+                        }
+                    }
                 }
             },
             "required": ["name", "trigger", "actions"]
@@ -288,14 +302,29 @@ Always respond in a natural, conversational way while being informative."""
             }
         }
 
-        # Call Gemini API
+        # Call Gemini API with retry logic for rate limits
         url = f"{GEMINI_BASE_URL}/models/{GEMINI_TEXT_MODEL}:generateContent?key={GEMINI_TEXT_API_KEY}"
 
-        response = await self.http_client.post(url, json=request_body)
+        max_retries = 3
+        retry_delay = 5.0  # Start with 5 seconds
 
-        if response.status_code != 200:
-            logger.error(f"Gemini API error: {response.status_code} - {response.text}")
-            raise HTTPException(status_code=502, detail="AI service unavailable")
+        for attempt in range(max_retries):
+            response = await self.http_client.post(url, json=request_body)
+
+            if response.status_code == 200:
+                break
+            elif response.status_code == 429:
+                # Rate limited - wait and retry
+                if attempt < max_retries - 1:
+                    logger.warning(f"Rate limited by Gemini API, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    logger.error(f"Gemini API rate limit exceeded after {max_retries} attempts")
+                    raise HTTPException(status_code=429, detail="AI service rate limited. Please wait a moment and try again.")
+            else:
+                logger.error(f"Gemini API error: {response.status_code} - {response.text}")
+                raise HTTPException(status_code=502, detail="AI service unavailable")
 
         result = response.json()
 
@@ -364,10 +393,25 @@ Always respond in a natural, conversational way while being informative."""
         }
 
         url = f"{GEMINI_BASE_URL}/models/{GEMINI_TEXT_MODEL}:generateContent?key={GEMINI_TEXT_API_KEY}"
-        response = await self.http_client.post(url, json=request_body)
 
-        if response.status_code != 200:
-            return f"I executed {func_name} successfully, but had trouble generating a summary."
+        # Retry logic for rate limits
+        max_retries = 3
+        retry_delay = 5.0
+
+        for attempt in range(max_retries):
+            response = await self.http_client.post(url, json=request_body)
+
+            if response.status_code == 200:
+                break
+            elif response.status_code == 429:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Rate limited on follow-up, retrying in {retry_delay}s")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    return f"I executed {func_name} successfully, but the AI service is busy. Please try again in a moment."
+            else:
+                return f"I executed {func_name} successfully, but had trouble generating a summary."
 
         result = response.json()
         candidates = result.get("candidates", [])
