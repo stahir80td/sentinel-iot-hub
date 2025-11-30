@@ -20,9 +20,9 @@ spec:
       containers:
         - name: notification-service
           {{- if .Values.imageRegistry.registry }}
-          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}/{{ .Values.notificationService.image }}:{{ .Values.notificationService.tag }}"
+          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}-{{ .Values.notificationService.image }}:{{ .Values.notificationService.tag }}"
           {{- else }}
-          image: "{{ .Values.imageRegistry.prefix }}/{{ .Values.notificationService.image }}:{{ .Values.notificationService.tag }}"
+          image: "{{ .Values.imageRegistry.prefix }}-{{ .Values.notificationService.image }}:{{ .Values.notificationService.tag }}"
           {{- end }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           ports:

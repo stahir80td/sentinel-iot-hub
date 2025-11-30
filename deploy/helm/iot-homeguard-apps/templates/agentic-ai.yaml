@@ -20,9 +20,9 @@ spec:
       containers:
         - name: agentic-ai
           {{- if .Values.imageRegistry.registry }}
-          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}/{{ .Values.agenticAi.image }}:{{ .Values.agenticAi.tag }}"
+          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}-{{ .Values.agenticAi.image }}:{{ .Values.agenticAi.tag }}"
           {{- else }}
-          image: "{{ .Values.imageRegistry.prefix }}/{{ .Values.agenticAi.image }}:{{ .Values.agenticAi.tag }}"
+          image: "{{ .Values.imageRegistry.prefix }}-{{ .Values.agenticAi.image }}:{{ .Values.agenticAi.tag }}"
           {{- end }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           ports:

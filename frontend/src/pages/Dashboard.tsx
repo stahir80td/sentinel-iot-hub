@@ -8,12 +8,21 @@ import {
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { deviceService } from '../services/api'
 
+interface DeviceConfig {
+  power_on?: boolean
+  locked?: boolean
+  target_temp?: number
+  brightness?: number
+}
+
 interface Device {
   id: string
   name: string
   type: string
   status: string
+  location: string
   last_seen: string
+  config: DeviceConfig
 }
 
 interface Stats {
@@ -32,6 +41,61 @@ const mockChartData = [
   { name: '20:00', events: 28 },
   { name: '24:00', events: 15 },
 ]
+
+// Device type icons and colors
+const deviceTypeInfo: Record<string, { icon: string; color: string }> = {
+  motion_sensor: { icon: '👁️', color: 'bg-blue-100' },
+  door_sensor: { icon: '🚪', color: 'bg-orange-100' },
+  camera: { icon: '📷', color: 'bg-red-100' },
+  thermostat: { icon: '🌡️', color: 'bg-cyan-100' },
+  smart_lock: { icon: '🔐', color: 'bg-green-100' },
+  light: { icon: '💡', color: 'bg-yellow-100' },
+  smoke_detector: { icon: '🔥', color: 'bg-gray-100' },
+}
+
+function getDeviceIcon(type: string): string {
+  return deviceTypeInfo[type]?.icon || '📱'
+}
+
+function getDeviceIconBg(type: string): string {
+  return deviceTypeInfo[type]?.color || 'bg-gray-100'
+}
+
+function getDeviceStateIndicator(device: Device): { icon: string; text: string; color: string } | null {
+  switch (device.type) {
+    case 'smart_lock':
+      return device.config?.locked
+        ? { icon: '🔒', text: 'Locked', color: 'text-green-600' }
+        : { icon: '🔓', text: 'Unlocked', color: 'text-yellow-600' }
+    case 'light':
+      return device.config?.power_on
+        ? { icon: '💡', text: 'On', color: 'text-yellow-500' }
+        : { icon: '⚫', text: 'Off', color: 'text-gray-400' }
+    case 'thermostat':
+      return device.config?.target_temp
+        ? { icon: '🌡️', text: `${device.config.target_temp}°F`, color: 'text-cyan-600' }
+        : null
+    case 'camera':
+      return device.status === 'active'
+        ? { icon: '🔴', text: 'Recording', color: 'text-red-500' }
+        : { icon: '⚫', text: 'Offline', color: 'text-gray-400' }
+    default:
+      return null
+  }
+}
+
+function formatLastSeen(lastSeen: string): string {
+  const date = new Date(lastSeen)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+
+  if (diffMins < 1) return 'Just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+  const diffHours = Math.floor(diffMins / 60)
+  if (diffHours < 24) return `${diffHours}h ago`
+  return date.toLocaleDateString()
+}
 
 export default function Dashboard() {
   const [devices, setDevices] = useState<Device[]>([])
@@ -169,28 +233,50 @@ export default function Dashboard() {
               </p>
             ) : (
               <ul className="divide-y divide-gray-200">
-                {devices.slice(0, 5).map((device) => (
-                  <li key={device.id} className="py-3">
-                    <div className="flex items-center space-x-4">
-                      <div
-                        className={`w-2 h-2 rounded-full ${
-                          device.status === 'online'
-                            ? 'bg-green-400'
-                            : 'bg-gray-300'
-                        }`}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">
-                          {device.name}
-                        </p>
-                        <p className="text-sm text-gray-500">{device.type}</p>
+                {devices.slice(0, 5).map((device) => {
+                  const stateIndicator = getDeviceStateIndicator(device)
+                  return (
+                    <li key={device.id} className="py-3">
+                      <div className="flex items-center space-x-3">
+                        {/* Device Type Icon */}
+                        <div className={`flex-shrink-0 w-10 h-10 rounded-lg ${getDeviceIconBg(device.type)} flex items-center justify-center text-xl`}>
+                          {getDeviceIcon(device.type)}
+                        </div>
+
+                        {/* Device Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center space-x-2">
+                            <p className="text-sm font-medium text-gray-900 truncate">
+                              {device.name}
+                            </p>
+                            <div
+                              className={`w-2 h-2 rounded-full ${
+                                device.status === 'active'
+                                  ? 'bg-green-400'
+                                  : 'bg-gray-300'
+                              }`}
+                              title={device.status === 'active' ? 'Active' : 'Inactive'}
+                            />
+                          </div>
+                          <p className="text-xs text-gray-500">
+                            {device.type.replace('_', ' ')} {device.location && `- ${device.location}`}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            {formatLastSeen(device.last_seen)}
+                          </p>
+                        </div>
+
+                        {/* State Indicator */}
+                        {stateIndicator && (
+                          <div className={`flex items-center space-x-1 ${stateIndicator.color}`}>
+                            <span className="text-lg">{stateIndicator.icon}</span>
+                            <span className="text-xs font-medium">{stateIndicator.text}</span>
+                          </div>
+                        )}
                       </div>
-                      <div className="text-sm text-gray-500">
-                        {device.status}
-                      </div>
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  )
+                })}
               </ul>
             )}
           </div>

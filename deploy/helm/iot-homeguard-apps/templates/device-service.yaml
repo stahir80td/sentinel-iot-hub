@@ -20,9 +20,9 @@ spec:
       containers:
         - name: device-service
           {{- if .Values.imageRegistry.registry }}
-          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}/{{ .Values.deviceService.image }}:{{ .Values.deviceService.tag }}"
+          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}-{{ .Values.deviceService.image }}:{{ .Values.deviceService.tag }}"
           {{- else }}
-          image: "{{ .Values.imageRegistry.prefix }}/{{ .Values.deviceService.image }}:{{ .Values.deviceService.tag }}"
+          image: "{{ .Values.imageRegistry.prefix }}-{{ .Values.deviceService.image }}:{{ .Values.deviceService.tag }}"
           {{- end }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           ports:
@@ -39,6 +39,11 @@ spec:
               value: "mongodb://{{ .Values.global.infrastructure.mongodb.username }}:$(MONGO_PASSWORD)@{{ .Values.global.infrastructure.mongodb.host }}.{{ .Values.global.namespace }}:{{ .Values.global.infrastructure.mongodb.port }}/{{ .Values.global.infrastructure.mongodb.database }}?authSource=admin"
             - name: MONGO_DB
               value: {{ .Values.global.infrastructure.mongodb.database | quote }}
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: REDIS_URL
           resources:
             {{- toYaml .Values.deviceService.resources | nindent 12 }}
           livenessProbe:

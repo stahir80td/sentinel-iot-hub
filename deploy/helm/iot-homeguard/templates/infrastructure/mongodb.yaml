@@ -25,6 +25,8 @@ metadata:
     app: {{ .Values.global.namePrefix }}-mongodb
 spec:
   replicas: 1
+  strategy:
+    type: Recreate  # MongoDB can't run 2 instances on same data directory
   selector:
     matchLabels:
       app: {{ .Values.global.namePrefix }}-mongodb
@@ -55,24 +57,18 @@ spec:
             - name: data
               mountPath: /data/db
           livenessProbe:
-            exec:
-              command:
-                - bash
-                - -c
-                - "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' localhost:27017/test --authenticationDatabase admin -u {{ .Values.mongodb.auth.rootUsername }} -p $MONGO_INITDB_ROOT_PASSWORD"
-            initialDelaySeconds: 90
+            tcpSocket:
+              port: 27017
+            initialDelaySeconds: 60
             periodSeconds: 30
-            timeoutSeconds: 15
+            timeoutSeconds: 10
             failureThreshold: 5
           readinessProbe:
-            exec:
-              command:
-                - bash
-                - -c
-                - "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' localhost:27017/test --authenticationDatabase admin -u {{ .Values.mongodb.auth.rootUsername }} -p $MONGO_INITDB_ROOT_PASSWORD"
-            initialDelaySeconds: 45
+            tcpSocket:
+              port: 27017
+            initialDelaySeconds: 30
             periodSeconds: 15
-            timeoutSeconds: 15
+            timeoutSeconds: 10
             failureThreshold: 3
       volumes:
         - name: data

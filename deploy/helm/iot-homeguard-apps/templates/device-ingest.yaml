@@ -20,9 +20,9 @@ spec:
       containers:
         - name: device-ingest
           {{- if .Values.imageRegistry.registry }}
-          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}/{{ .Values.deviceIngest.image }}:{{ .Values.deviceIngest.tag }}"
+          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}-{{ .Values.deviceIngest.image }}:{{ .Values.deviceIngest.tag }}"
           {{- else }}
-          image: "{{ .Values.imageRegistry.prefix }}/{{ .Values.deviceIngest.image }}:{{ .Values.deviceIngest.tag }}"
+          image: "{{ .Values.imageRegistry.prefix }}-{{ .Values.deviceIngest.image }}:{{ .Values.deviceIngest.tag }}"
           {{- end }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           ports:

@@ -35,9 +35,9 @@ spec:
       containers:
         - name: frontend
           {{- if .Values.imageRegistry.registry }}
-          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}/{{ .Values.frontend.image }}:{{ .Values.frontend.tag }}"
+          image: "{{ .Values.imageRegistry.registry }}/{{ .Values.imageRegistry.prefix }}-{{ .Values.frontend.image }}:{{ .Values.frontend.tag }}"
           {{- else }}
-          image: "{{ .Values.imageRegistry.prefix }}/{{ .Values.frontend.image }}:{{ .Values.frontend.tag }}"
+          image: "{{ .Values.imageRegistry.prefix }}-{{ .Values.frontend.image }}:{{ .Values.frontend.tag }}"
           {{- end }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           ports:

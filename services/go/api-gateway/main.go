@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -195,7 +196,7 @@ func (g *Gateway) SetupRoutes() {
 
 		// Device routes
 		r.HandleFunc("/devices", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET", "POST")
-		r.HandleFunc("/devices/{id}", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET", "PUT", "DELETE")
+		r.HandleFunc("/devices/{id}", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET", "PUT", "PATCH", "DELETE")
 		r.HandleFunc("/devices/{id}/command", g.proxyHandler(g.config.DeviceServiceURL)).Methods("POST")
 		r.HandleFunc("/devices/{id}/status", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET")
 		r.HandleFunc("/devices/{id}/events", g.proxyHandler(g.config.DeviceServiceURL)).Methods("GET")
@@ -343,6 +344,20 @@ func (g *Gateway) proxyHandler(targetURL string) http.HandlerFunc {
 		}
 
 		proxy := httputil.NewSingleHostReverseProxy(target)
+
+		// Use a longer timeout transport for all proxied requests
+		proxy.Transport = &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			ResponseHeaderTimeout: 120 * time.Second, // Wait up to 2 min for AI response
+		}
+
 		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 			log.Printf("Proxy error: %v", err)
 			g.errorResponse(w, http.StatusBadGateway, "Service unavailable")
@@ -435,9 +450,9 @@ func main() {
 	server := &http.Server{
 		Addr:         ":" + config.Port,
 		Handler:      handler,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 120 * time.Second, // Increased for AI service which can take longer with retries
+		IdleTimeout:  120 * time.Second,
 	}
 
 	// Graceful shutdown

@@ -12,6 +12,7 @@ interface Message {
     args: any
     result: any
   }[]
+  error?: string
 }
 
 export default function AIAssistant() {
@@ -65,21 +66,44 @@ export default function AIAssistant() {
 
     try {
       const response = await aiService.chat(userMessage.content)
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: response.data.message,
-        timestamp: new Date(),
-        toolCalls: response.data.actions_taken,
+
+      // Check if there's an error in the response
+      if (response.data.error) {
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: '',
+          timestamp: new Date(),
+          error: response.data.error,
+        }
+        setMessages((prev) => [...prev, errorMessage])
+      } else {
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: response.data.message,
+          timestamp: new Date(),
+          toolCalls: response.data.actions_taken,
+        }
+        setMessages((prev) => [...prev, assistantMessage])
       }
-      setMessages((prev) => [...prev, assistantMessage])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to send message:', error)
+      let errorText = 'Sorry, I encountered an error. Please try again.'
+
+      // Check for rate limit error
+      if (error.response?.status === 429 || error.response?.data?.detail?.includes('rate limit')) {
+        errorText = 'The AI service is temporarily busy. Please wait a moment and try again.'
+      } else if (error.response?.data?.detail) {
+        errorText = error.response.data.detail
+      }
+
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: '',
         timestamp: new Date(),
+        error: errorText,
       }
       setMessages((prev) => [...prev, errorMessage])
     } finally {
@@ -158,10 +182,21 @@ export default function AIAssistant() {
                   className={`max-w-[80%] rounded-lg px-4 py-2 ${
                     message.role === 'user'
                       ? 'bg-primary-600 text-white'
+                      : message.error
+                      ? 'bg-red-50 text-red-800 border border-red-200'
                       : 'bg-gray-100 text-gray-900'
                   }`}
                 >
-                  <p className="whitespace-pre-wrap">{message.content}</p>
+                  {message.error ? (
+                    <div className="flex items-start space-x-2">
+                      <svg className="h-5 w-5 text-red-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <p className="whitespace-pre-wrap">{message.error}</p>
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap">{message.content}</p>
+                  )}
                   {message.toolCalls && message.toolCalls.length > 0 && (
                     <div className="mt-2 pt-2 border-t border-gray-200">
                       <p className="text-xs font-medium mb-1">Actions taken:</p>

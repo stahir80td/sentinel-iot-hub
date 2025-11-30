@@ -25,6 +25,8 @@ metadata:
     app: {{ .Values.global.namePrefix }}-postgresql
 spec:
   replicas: 1
+  strategy:
+    type: Recreate  # PostgreSQL can't run 2 instances on same data directory
   selector:
     matchLabels:
       app: {{ .Values.global.namePrefix }}-postgresql
@@ -55,21 +57,19 @@ spec:
             - name: data
               mountPath: /var/lib/postgresql/data
           livenessProbe:
-            exec:
-              command:
-                - pg_isready
-                - -U
-                - {{ .Values.postgresql.auth.username }}
-            initialDelaySeconds: 30
-            periodSeconds: 10
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
           readinessProbe:
-            exec:
-              command:
-                - pg_isready
-                - -U
-                - {{ .Values.postgresql.auth.username }}
-            initialDelaySeconds: 5
-            periodSeconds: 5
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 3
       volumes:
         - name: data
           persistentVolumeClaim:

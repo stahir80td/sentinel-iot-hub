@@ -2,14 +2,23 @@ import { useState, useEffect } from 'react'
 import { PlusIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { deviceService } from '../services/api'
 
+interface DeviceConfig {
+  power_on?: boolean
+  locked?: boolean
+  target_temp?: number
+  brightness?: number
+}
+
 interface Device {
   id: string
   name: string
   type: string
   status: string
+  online: boolean
   location: string
   last_seen: string
-  firmware_version: string
+  firmware_version?: string
+  config: DeviceConfig
 }
 
 const deviceTypes = [
@@ -25,6 +34,7 @@ const deviceTypes = [
 export default function Devices() {
   const [devices, setDevices] = useState<Device[]>([])
   const [loading, setLoading] = useState(true)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
   const [newDevice, setNewDevice] = useState({
     name: '',
@@ -70,12 +80,36 @@ export default function Devices() {
   }
 
   async function handleSendCommand(id: string, command: string) {
+    setActionLoading(`${id}-${command}`)
     try {
       await deviceService.sendCommand(id, command)
-      fetchDevices()
+      await fetchDevices()
     } catch (error) {
       console.error('Failed to send command:', error)
+    } finally {
+      setActionLoading(null)
     }
+  }
+
+  async function handleToggleStatus(device: Device) {
+    const newStatus = device.status === 'active' ? 'inactive' : 'active'
+    setActionLoading(`${device.id}-status`)
+    try {
+      await deviceService.updateStatus(device.id, newStatus)
+      await fetchDevices()
+    } catch (error) {
+      console.error('Failed to update status:', error)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  function isLightOn(device: Device): boolean {
+    return device.config?.power_on === true
+  }
+
+  function isLocked(device: Device): boolean {
+    return device.config?.locked === true
   }
 
   if (loading) {
@@ -117,7 +151,7 @@ export default function Devices() {
                     <div className="flex items-center">
                       <div
                         className={`flex-shrink-0 w-3 h-3 rounded-full mr-3 ${
-                          device.status === 'online'
+                          device.status === 'active'
                             ? 'bg-green-400'
                             : 'bg-gray-300'
                         }`}
@@ -127,55 +161,117 @@ export default function Devices() {
                           {device.name}
                         </p>
                         <p className="text-sm text-gray-500">
-                          {device.type} - {device.location}
+                          {device.type.replace('_', ' ')} - {device.location}
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          device.status === 'online'
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-gray-100 text-gray-800'
-                        }`}
+                    <div className="flex items-center space-x-3">
+                      {/* Active/Inactive Toggle */}
+                      <button
+                        onClick={() => handleToggleStatus(device)}
+                        disabled={actionLoading === `${device.id}-status`}
+                        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 ${
+                          device.status === 'active' ? 'bg-green-500' : 'bg-gray-200'
+                        } ${actionLoading === `${device.id}-status` ? 'opacity-50' : ''}`}
                       >
-                        {device.status}
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                            device.status === 'active' ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                      <span className="text-xs text-gray-500 w-14">
+                        {device.status === 'active' ? 'Active' : 'Inactive'}
                       </span>
+
+                      {/* Smart Lock Controls */}
                       {device.type === 'smart_lock' && (
-                        <>
+                        <div className="flex items-center space-x-2 ml-2 pl-2 border-l border-gray-200">
+                          <span className={`text-lg ${isLocked(device) ? 'text-green-600' : 'text-yellow-500'}`}>
+                            {isLocked(device) ? '🔒' : '🔓'}
+                          </span>
                           <button
                             onClick={() => handleSendCommand(device.id, 'lock')}
-                            className="text-sm text-primary-600 hover:text-primary-700"
+                            disabled={actionLoading === `${device.id}-lock` || isLocked(device)}
+                            className={`px-2 py-1 text-xs rounded ${
+                              isLocked(device)
+                                ? 'bg-green-100 text-green-700 cursor-default'
+                                : 'bg-gray-100 text-gray-700 hover:bg-green-100 hover:text-green-700'
+                            } ${actionLoading === `${device.id}-lock` ? 'opacity-50' : ''}`}
                           >
-                            Lock
+                            {actionLoading === `${device.id}-lock` ? '...' : 'Lock'}
                           </button>
                           <button
                             onClick={() => handleSendCommand(device.id, 'unlock')}
-                            className="text-sm text-primary-600 hover:text-primary-700"
+                            disabled={actionLoading === `${device.id}-unlock` || !isLocked(device)}
+                            className={`px-2 py-1 text-xs rounded ${
+                              !isLocked(device)
+                                ? 'bg-yellow-100 text-yellow-700 cursor-default'
+                                : 'bg-gray-100 text-gray-700 hover:bg-yellow-100 hover:text-yellow-700'
+                            } ${actionLoading === `${device.id}-unlock` ? 'opacity-50' : ''}`}
                           >
-                            Unlock
+                            {actionLoading === `${device.id}-unlock` ? '...' : 'Unlock'}
                           </button>
-                        </>
+                        </div>
                       )}
+
+                      {/* Light Controls */}
                       {device.type === 'light' && (
-                        <>
+                        <div className="flex items-center space-x-2 ml-2 pl-2 border-l border-gray-200">
+                          <span className={`text-lg ${isLightOn(device) ? 'text-yellow-400' : 'text-gray-400'}`}>
+                            {isLightOn(device) ? '💡' : '⚫'}
+                          </span>
                           <button
-                            onClick={() => handleSendCommand(device.id, 'on')}
-                            className="text-sm text-primary-600 hover:text-primary-700"
+                            onClick={() => handleSendCommand(device.id, 'turn_on')}
+                            disabled={actionLoading === `${device.id}-turn_on` || isLightOn(device)}
+                            className={`px-2 py-1 text-xs rounded ${
+                              isLightOn(device)
+                                ? 'bg-yellow-100 text-yellow-700 cursor-default'
+                                : 'bg-gray-100 text-gray-700 hover:bg-yellow-100 hover:text-yellow-700'
+                            } ${actionLoading === `${device.id}-turn_on` ? 'opacity-50' : ''}`}
                           >
-                            On
+                            {actionLoading === `${device.id}-turn_on` ? '...' : 'On'}
                           </button>
                           <button
-                            onClick={() => handleSendCommand(device.id, 'off')}
-                            className="text-sm text-primary-600 hover:text-primary-700"
+                            onClick={() => handleSendCommand(device.id, 'turn_off')}
+                            disabled={actionLoading === `${device.id}-turn_off` || !isLightOn(device)}
+                            className={`px-2 py-1 text-xs rounded ${
+                              !isLightOn(device)
+                                ? 'bg-gray-200 text-gray-600 cursor-default'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            } ${actionLoading === `${device.id}-turn_off` ? 'opacity-50' : ''}`}
                           >
-                            Off
+                            {actionLoading === `${device.id}-turn_off` ? '...' : 'Off'}
                           </button>
-                        </>
+                        </div>
                       )}
+
+                      {/* Thermostat Display */}
+                      {device.type === 'thermostat' && device.config?.target_temp && (
+                        <div className="flex items-center space-x-2 ml-2 pl-2 border-l border-gray-200">
+                          <span className="text-lg">🌡️</span>
+                          <span className="text-sm font-medium text-gray-700">
+                            {device.config.target_temp}°F
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Camera indicator */}
+                      {device.type === 'camera' && (
+                        <div className="flex items-center space-x-2 ml-2 pl-2 border-l border-gray-200">
+                          <span className={`text-lg ${device.status === 'active' ? 'text-red-500' : 'text-gray-400'}`}>
+                            📷
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {device.status === 'active' ? 'Recording' : 'Offline'}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Delete button */}
                       <button
                         onClick={() => handleDeleteDevice(device.id)}
-                        className="text-gray-400 hover:text-red-500"
+                        className="text-gray-400 hover:text-red-500 ml-2"
                       >
                         <TrashIcon className="h-5 w-5" />
                       </button>

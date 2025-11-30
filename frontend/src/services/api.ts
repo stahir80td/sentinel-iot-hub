@@ -26,6 +26,8 @@ export const deviceService = {
   delete: (id: string) => api.delete(`/api/devices/${id}`),
   sendCommand: (id: string, command: string, params?: any) =>
     api.post(`/api/devices/${id}/command`, { command, params }),
+  updateStatus: (id: string, status: string) =>
+    api.patch(`/api/devices/${id}`, { status }),
 }
 
 export const automationService = {

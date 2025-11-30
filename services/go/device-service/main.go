@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -18,11 +20,17 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+const (
+	deviceListCacheTTL   = 30 * time.Second
+	deviceStatusCacheTTL = 15 * time.Second
+)
+
 // Config holds the application configuration
 type Config struct {
 	Port     string
 	MongoURL string
 	MongoDB  string
+	RedisURL string
 }
 
 // Device represents an IoT device
@@ -64,6 +72,7 @@ type Service struct {
 	db         *mongo.Database
 	devices    *mongo.Collection
 	commands   *mongo.Collection
+	redis      *redis.Client
 	router     *mux.Router
 }
 
@@ -72,6 +81,7 @@ func loadConfig() *Config {
 		Port:     getEnv("PORT", "8080"),
 		MongoURL: getEnv("MONGO_URL", "mongodb://root:homeguard-mongo-2024@mongodb.homeguard-data:27017/homeguard?authSource=admin"),
 		MongoDB:  getEnv("MONGO_DB", "homeguard"),
+		RedisURL: getEnv("REDIS_URL", "redis://iot-redis.sandbox:6379"),
 	}
 }
 
@@ -106,12 +116,26 @@ func NewService(config *Config) (*Service, error) {
 
 	db := client.Database(config.MongoDB)
 
+	// Connect to Redis
+	opt, err := redis.ParseURL(config.RedisURL)
+	if err != nil {
+		log.Printf("Warning: failed to parse Redis URL: %v - service will run without cache", err)
+	}
+	redisClient := redis.NewClient(opt)
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		log.Printf("Warning: failed to connect to Redis: %v - service will run without cache", err)
+		redisClient = nil
+	} else {
+		log.Println("Connected to Redis cache")
+	}
+
 	service := &Service{
 		config:     config,
 		client:     client,
 		db:         db,
 		devices:    db.Collection("devices"),
 		commands:   db.Collection("device_commands"),
+		redis:      redisClient,
 		router:     mux.NewRouter(),
 	}
 
@@ -121,6 +145,41 @@ func NewService(config *Config) (*Service, error) {
 	}
 
 	return service, nil
+}
+
+// Cache key helpers
+func (s *Service) deviceListCacheKey(userID string, deviceType string) string {
+	if deviceType != "" {
+		return fmt.Sprintf("devices:list:%s:%s", userID, deviceType)
+	}
+	return fmt.Sprintf("devices:list:%s", userID)
+}
+
+func (s *Service) deviceCacheKey(deviceID string) string {
+	return fmt.Sprintf("devices:item:%s", deviceID)
+}
+
+// Cache invalidation
+func (s *Service) invalidateUserDeviceCache(ctx context.Context, userID string) {
+	if s.redis == nil {
+		return
+	}
+	pattern := fmt.Sprintf("devices:list:%s*", userID)
+	keys, err := s.redis.Keys(ctx, pattern).Result()
+	if err != nil {
+		log.Printf("Warning: failed to get cache keys: %v", err)
+		return
+	}
+	if len(keys) > 0 {
+		s.redis.Del(ctx, keys...)
+	}
+}
+
+func (s *Service) invalidateDeviceCache(ctx context.Context, deviceID string) {
+	if s.redis == nil {
+		return
+	}
+	s.redis.Del(ctx, s.deviceCacheKey(deviceID))
 }
 
 func (s *Service) createIndexes(ctx context.Context) error {
@@ -155,6 +214,7 @@ func (s *Service) SetupRoutes() {
 	s.router.HandleFunc("/devices", s.createDevice).Methods("POST")
 	s.router.HandleFunc("/devices/{id}", s.getDevice).Methods("GET")
 	s.router.HandleFunc("/devices/{id}", s.updateDevice).Methods("PUT")
+	s.router.HandleFunc("/devices/{id}", s.patchDevice).Methods("PATCH")
 	s.router.HandleFunc("/devices/{id}", s.deleteDevice).Methods("DELETE")
 
 	// Device operations
@@ -201,10 +261,24 @@ func (s *Service) listDevices(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	filter := bson.M{"user_id": userID}
+	deviceType := r.URL.Query().Get("type")
+	cacheKey := s.deviceListCacheKey(userID, deviceType)
 
-	// Optional type filter
-	if deviceType := r.URL.Query().Get("type"); deviceType != "" {
+	// Try cache first
+	if s.redis != nil {
+		cached, err := s.redis.Get(ctx, cacheKey).Result()
+		if err == nil {
+			var response map[string]interface{}
+			if json.Unmarshal([]byte(cached), &response) == nil {
+				log.Printf("Cache hit for devices list: %s", cacheKey)
+				s.jsonResponse(w, http.StatusOK, response)
+				return
+			}
+		}
+	}
+
+	filter := bson.M{"user_id": userID}
+	if deviceType != "" {
 		filter["type"] = deviceType
 	}
 
@@ -228,10 +302,20 @@ func (s *Service) listDevices(w http.ResponseWriter, r *http.Request) {
 		devices[i].Token = ""
 	}
 
-	s.jsonResponse(w, http.StatusOK, map[string]interface{}{
+	response := map[string]interface{}{
 		"devices": devices,
 		"count":   len(devices),
-	})
+	}
+
+	// Cache the result
+	if s.redis != nil {
+		if data, err := json.Marshal(response); err == nil {
+			s.redis.Set(ctx, cacheKey, data, deviceListCacheTTL)
+			log.Printf("Cached devices list: %s", cacheKey)
+		}
+	}
+
+	s.jsonResponse(w, http.StatusOK, response)
 }
 
 func (s *Service) createDevice(w http.ResponseWriter, r *http.Request) {
@@ -279,6 +363,9 @@ func (s *Service) createDevice(w http.ResponseWriter, r *http.Request) {
 		s.errorResponse(w, http.StatusInternalServerError, "Failed to create device")
 		return
 	}
+
+	// Invalidate user's device list cache
+	s.invalidateUserDeviceCache(ctx, userID)
 
 	s.jsonResponse(w, http.StatusCreated, device)
 }
@@ -355,6 +442,65 @@ func (s *Service) updateDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Invalidate caches
+	s.invalidateUserDeviceCache(ctx, userID)
+	s.invalidateDeviceCache(ctx, deviceID)
+
+	// Return updated device
+	var device Device
+	s.devices.FindOne(ctx, filter).Decode(&device)
+	device.Token = ""
+	s.jsonResponse(w, http.StatusOK, device)
+}
+
+func (s *Service) patchDevice(w http.ResponseWriter, r *http.Request) {
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		s.errorResponse(w, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+
+	vars := mux.Vars(r)
+	deviceID := vars["id"]
+
+	var updates map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		s.errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Allow status and online fields for PATCH (partial updates)
+	allowedFields := map[string]bool{
+		"name": true, "location": true, "config": true, "metadata": true,
+		"status": true, "online": true,
+	}
+	updateDoc := bson.M{"updated_at": time.Now()}
+	for key, value := range updates {
+		if allowedFields[key] {
+			updateDoc[key] = value
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	filter := bson.M{"_id": deviceID, "user_id": userID}
+	result, err := s.devices.UpdateOne(ctx, filter, bson.M{"$set": updateDoc})
+	if err != nil {
+		log.Printf("Error patching device: %v", err)
+		s.errorResponse(w, http.StatusInternalServerError, "Failed to update device")
+		return
+	}
+
+	if result.MatchedCount == 0 {
+		s.errorResponse(w, http.StatusNotFound, "Device not found")
+		return
+	}
+
+	// Invalidate caches
+	s.invalidateUserDeviceCache(ctx, userID)
+	s.invalidateDeviceCache(ctx, deviceID)
+
 	// Return updated device
 	var device Device
 	s.devices.FindOne(ctx, filter).Decode(&device)
@@ -387,6 +533,10 @@ func (s *Service) deleteDevice(w http.ResponseWriter, r *http.Request) {
 		s.errorResponse(w, http.StatusNotFound, "Device not found")
 		return
 	}
+
+	// Invalidate caches
+	s.invalidateUserDeviceCache(ctx, userID)
+	s.invalidateDeviceCache(ctx, deviceID)
 
 	s.jsonResponse(w, http.StatusOK, map[string]string{"message": "Device deleted"})
 }
@@ -450,7 +600,45 @@ func (s *Service) sendCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Publish command to Kafka for device to pick up
+	// For demo purposes, immediately update the device config based on the command
+	// In production, this would be handled by the actual device via Kafka
+	configUpdate := bson.M{}
+	switch req.Command {
+	case "turn_on":
+		configUpdate["config.power_on"] = true
+	case "turn_off":
+		configUpdate["config.power_on"] = false
+	case "set_brightness":
+		if brightness, ok := req.Payload["brightness"]; ok {
+			configUpdate["config.brightness"] = brightness
+		}
+	case "set_temperature":
+		if temp, ok := req.Payload["temperature"]; ok {
+			configUpdate["config.target_temp"] = temp
+		}
+	case "lock":
+		configUpdate["config.locked"] = true
+	case "unlock":
+		configUpdate["config.locked"] = false
+	case "arm":
+		configUpdate["config.mode"] = "armed"
+	case "disarm":
+		configUpdate["config.mode"] = "disarmed"
+	}
+
+	if len(configUpdate) > 0 {
+		configUpdate["updated_at"] = time.Now()
+		configUpdate["last_seen"] = time.Now()
+		_, err = s.devices.UpdateOne(ctx, bson.M{"_id": deviceID}, bson.M{"$set": configUpdate})
+		if err != nil {
+			log.Printf("Error updating device config: %v", err)
+		}
+		// Invalidate caches after command updates device
+		s.invalidateUserDeviceCache(ctx, userID)
+		s.invalidateDeviceCache(ctx, deviceID)
+	}
+
+	// TODO: Publish command to Kafka for actual device to pick up
 
 	s.jsonResponse(w, http.StatusAccepted, command)
 }
@@ -483,12 +671,70 @@ func (s *Service) getDeviceStatus(w http.ResponseWriter, r *http.Request) {
 	// Check if device is online (last seen within 2 minutes)
 	isOnline := time.Since(device.LastSeen) < 2*time.Minute
 
-	s.jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"device_id": device.ID,
-		"online":    isOnline,
-		"status":    device.Status,
-		"last_seen": device.LastSeen,
-	})
+	// Build detailed status based on device type
+	detailedStatus := map[string]interface{}{
+		"device_id":   device.ID,
+		"name":        device.Name,
+		"type":        device.Type,
+		"online":      isOnline,
+		"status":      device.Status,
+		"last_seen":   device.LastSeen,
+		"location":    device.Location,
+		"config":      device.Config,
+	}
+
+	// Add human-readable state based on device type and config
+	if device.Config != nil {
+		switch device.Type {
+		case "light":
+			if powerOn, ok := device.Config["power_on"].(bool); ok {
+				if powerOn {
+					detailedStatus["state"] = "on"
+				} else {
+					detailedStatus["state"] = "off"
+				}
+			}
+			if brightness, ok := device.Config["brightness"].(float64); ok {
+				detailedStatus["brightness"] = int(brightness)
+			}
+		case "thermostat":
+			if temp, ok := device.Config["target_temp"].(float64); ok {
+				detailedStatus["target_temperature"] = int(temp)
+			}
+			if mode, ok := device.Config["mode"].(string); ok {
+				detailedStatus["mode"] = mode
+			}
+		case "smart_lock":
+			if locked, ok := device.Config["locked"].(bool); ok {
+				if locked {
+					detailedStatus["state"] = "locked"
+				} else {
+					detailedStatus["state"] = "unlocked"
+				}
+			}
+		case "camera":
+			if recording, ok := device.Config["recording"].(bool); ok {
+				detailedStatus["recording"] = recording
+			}
+			if motionDetection, ok := device.Config["motion_detection"].(bool); ok {
+				detailedStatus["motion_detection"] = motionDetection
+			}
+		case "smart_plug":
+			if powerOn, ok := device.Config["power_on"].(bool); ok {
+				if powerOn {
+					detailedStatus["state"] = "on"
+				} else {
+					detailedStatus["state"] = "off"
+				}
+			}
+		case "alarm":
+			if mode, ok := device.Config["mode"].(string); ok {
+				detailedStatus["alarm_mode"] = mode
+			}
+		}
+	}
+
+	s.jsonResponse(w, http.StatusOK, detailedStatus)
 }
 
 func (s *Service) getDeviceEvents(w http.ResponseWriter, r *http.Request) {
@@ -554,6 +800,9 @@ func (s *Service) updateHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Invalidate device cache on heartbeat (status may have changed)
+	s.invalidateDeviceCache(ctx, deviceID)
+
 	s.jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -584,6 +833,9 @@ func main() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			service.client.Disconnect(ctx)
+		}
+		if service.redis != nil {
+			service.redis.Close()
 		}
 	}()
 

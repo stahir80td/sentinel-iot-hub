@@ -40,13 +40,15 @@ global:
       host: "iot-scylladb"
       port: 9042
 
-# Local: use local docker images (no registry)
+# Local: use local docker images (no registry, iot- prefix)
 imageRegistry:
   registry: ""
-  prefix: "homeguard"
+  prefix: "iot"
 
-# Minimal resources for local development
+# Minimal resources for local development + image tags
 apiGateway:
+  image: "api-gateway"
+  tag: "v2"
   resources:
     requests:
       cpu: 25m
@@ -56,6 +58,8 @@ apiGateway:
       memory: 64Mi
 
 userService:
+  image: "user-service"
+  tag: "latest"
   resources:
     requests:
       cpu: 25m
@@ -65,6 +69,8 @@ userService:
       memory: 64Mi
 
 deviceService:
+  image: "device-service"
+  tag: "v3"
   resources:
     requests:
       cpu: 25m
@@ -74,6 +80,8 @@ deviceService:
       memory: 64Mi
 
 deviceIngest:
+  image: "device-ingest"
+  tag: "latest"
   resources:
     requests:
       cpu: 25m
@@ -83,6 +91,8 @@ deviceIngest:
       memory: 64Mi
 
 eventProcessor:
+  image: "event-processor"
+  tag: "latest"
   resources:
     requests:
       cpu: 25m
@@ -92,6 +102,8 @@ eventProcessor:
       memory: 64Mi
 
 notificationService:
+  image: "notification-service"
+  tag: "latest"
   resources:
     requests:
       cpu: 25m
@@ -101,6 +113,8 @@ notificationService:
       memory: 64Mi
 
 scenarioEngine:
+  image: "scenario-engine"
+  tag: "latest"
   resources:
     requests:
       cpu: 25m
@@ -110,6 +124,8 @@ scenarioEngine:
       memory: 64Mi
 
 agenticAi:
+  image: "agentic-ai"
+  tag: "v6"
   geminiApiKey: ""
   resources:
     requests:
@@ -120,6 +136,8 @@ agenticAi:
       memory: 128Mi
 
 frontend:
+  image: "frontend"
+  tag: "v4"
   resources:
     requests:
       cpu: 25m
