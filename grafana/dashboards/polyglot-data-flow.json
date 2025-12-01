@@ -249,7 +249,7 @@
             "uid": "Loki"
           },
           "editorMode": "code",
-          "expr": "sum by (source) (count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\]\" | pattern `<_> source=<source> <_>` [1m]))",
+          "expr": "sum by (source) (count_over_time({app=~\"iot-.*\"} |~ \"ACTIVITY\" | json | line_format \"{{.log}}\" | pattern `<_> source=<source> <_>` [1m]))",
           "legendFormat": "{{source}}",
           "queryType": "range",
           "refId": "A"
@@ -308,7 +308,7 @@
             "uid": "Loki"
           },
           "editorMode": "code",
-          "expr": "count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\].*source=mongodb\" [5m])",
+          "expr": "count_over_time({app=~\"iot-.*\"} |~ \"ACTIVITY.*source=mongodb\" [5m])",
           "legendFormat": "",
           "queryType": "range",
           "refId": "A"
@@ -368,7 +368,7 @@
             "uid": "Loki"
           },
           "editorMode": "code",
-          "expr": "count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\].*source=redis\" [5m])",
+          "expr": "count_over_time({app=~\"iot-.*\"} |~ \"ACTIVITY.*source=redis\" [5m])",
           "legendFormat": "",
           "queryType": "range",
           "refId": "A"
@@ -428,7 +428,7 @@
             "uid": "Loki"
           },
           "editorMode": "code",
-          "expr": "count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\].*source=kafka\" [5m])",
+          "expr": "count_over_time({app=~\"iot-.*\"} |~ \"ACTIVITY.*source=kafka\" [5m])",
           "legendFormat": "",
           "queryType": "range",
           "refId": "A"
@@ -488,7 +488,7 @@
             "uid": "Loki"
           },
           "editorMode": "code",
-          "expr": "count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\].*source=timescaledb\" [5m])",
+          "expr": "count_over_time({app=~\"iot-.*\"} |~ \"ACTIVITY.*source=timescaledb\" [5m])",
           "legendFormat": "",
           "queryType": "range",
           "refId": "A"
@@ -548,7 +548,7 @@
             "uid": "Loki"
           },
           "editorMode": "code",
-          "expr": "count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\].*source=scylladb\" [5m])",
+          "expr": "count_over_time({app=~\"iot-.*\"} |~ \"ACTIVITY.*source=scylladb\" [5m])",
           "legendFormat": "",
           "queryType": "range",
           "refId": "A"
@@ -608,7 +608,7 @@
             "uid": "Loki"
           },
           "editorMode": "code",
-          "expr": "count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\].*source=n8n\" [5m])",
+          "expr": "count_over_time({app=~\"iot-.*\"} |~ \"ACTIVITY.*source=n8n\" [5m])",
           "legendFormat": "",
           "queryType": "range",
           "refId": "A"
@@ -791,7 +791,7 @@
             "uid": "Loki"
           },
           "editorMode": "code",
-          "expr": "sum by (source) (count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\]\" | pattern `<_> source=<source> <_>` [15m]))",
+          "expr": "sum by (source) (count_over_time({app=~\"iot-.*\"} |~ \"ACTIVITY\" | json | line_format \"{{.log}}\" | pattern `<_> source=<source> <_>` [15m]))",
           "legendFormat": "{{source}}",
           "queryType": "range",
           "refId": "A"
@@ -853,7 +853,7 @@
             "uid": "Loki"
           },
           "editorMode": "code",
-          "expr": "sum by (action) (count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\]\" | pattern `<_> action=<action> <_>` [15m]))",
+          "expr": "sum by (action) (count_over_time({app=~\"iot-.*\"} |~ \"ACTIVITY\" | json | line_format \"{{.log}}\" | pattern `<_> action=<action> <_>` [15m]))",
           "legendFormat": "{{action}}",
           "queryType": "range",
           "refId": "A"
@@ -982,7 +982,7 @@
             "uid": "Loki"
           },
           "editorMode": "code",
-          "expr": "{app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\]\" | pattern `<timestamp> <_> source=<source> action=<action> details=<details> user=<user> device=<device> severity=<severity>`",
+          "expr": "{app=~\"iot-.*\"} |~ \"ACTIVITY\" | json | line_format \"{{.log}}\"",
           "legendFormat": "",
           "queryType": "range",
           "refId": "A"
@@ -1485,6 +1485,6 @@
   "timezone": "browser",
   "title": "HomeGuard - Polyglot Data Flow",
   "uid": "polyglot-data-flow",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }
