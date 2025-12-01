@@ -276,11 +276,12 @@ export default function SystemActivityPanel() {
         </div>
       </div>
 
-      {/* Activity List */}
+      {/* Activity List - 50% of viewport height */}
       {isExpanded && (
         <div
           ref={activityContainerRef}
-          className="max-h-72 overflow-y-auto px-4 py-3 space-y-2"
+          className="overflow-y-auto px-4 py-3 space-y-2"
+          style={{ height: 'calc(50vh - 80px)' }}
         >
           {activities.length === 0 ? (
             <div className="text-center py-8 text-neutral-500">

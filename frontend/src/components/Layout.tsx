@@ -5,7 +5,6 @@ import SystemActivityPanel from './SystemActivityPanel'
 import {
   HomeIcon,
   DevicePhoneMobileIcon,
-  CpuChipIcon,
   ChatBubbleLeftRightIcon,
   Cog6ToothIcon,
   Bars3Icon,
@@ -17,7 +16,6 @@ import {
 const navigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
   { name: 'Devices', href: '/devices', icon: DevicePhoneMobileIcon },
-  { name: 'Automations', href: '/automations', icon: CpuChipIcon },
   { name: 'AI Assistant', href: '/assistant', icon: ChatBubbleLeftRightIcon },
   { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },
 ]
@@ -121,8 +119,8 @@ export default function Layout() {
         </div>
       </div>
 
-      {/* Main content */}
-      <div className="lg:pl-64 pb-80">
+      {/* Main content - pb accounts for 50vh data flow panel */}
+      <div className="lg:pl-64" style={{ paddingBottom: '52vh' }}>
         {/* Top header bar */}
         <div className="sticky top-0 z-10 flex h-16 bg-white border-b border-neutral-200 shadow-sm">
           <button

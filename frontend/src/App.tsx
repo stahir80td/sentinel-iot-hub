@@ -4,7 +4,6 @@ import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Devices from './pages/Devices'
-import Automations from './pages/Automations'
 import AIAssistant from './pages/AIAssistant'
 import Settings from './pages/Settings'
 
@@ -36,7 +35,6 @@ export default function App() {
       >
         <Route index element={<Dashboard />} />
         <Route path="devices" element={<Devices />} />
-        <Route path="automations" element={<Automations />} />
         <Route path="assistant" element={<AIAssistant />} />
         <Route path="settings" element={<Settings />} />
       </Route>
