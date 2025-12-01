@@ -22,9 +22,12 @@ data:
   REDIS_URL: "redis://{{ .Values.global.infrastructure.redis.host }}.{{ .Values.global.namespace }}:{{ .Values.global.infrastructure.redis.port }}"
   SCYLLA_HOSTS: "{{ .Values.global.infrastructure.scylladb.host }}.{{ .Values.global.namespace }}:{{ .Values.global.infrastructure.scylladb.port }}"
 
-  # Kafka Consumer Config
+  # Kafka Consumer Config (for event-processor)
   KAFKA_TOPICS: {{ .Values.eventProcessor.kafkaTopics | join "," | quote }}
   CONSUMER_GROUP: {{ .Values.eventProcessor.consumerGroup | quote }}
+
+  # Kafka Producer Config (for device-service)
+  KAFKA_COMMANDS_TOPIC: "device-events"
 
   # Public URLs for frontend
   PUBLIC_API_URL: {{ .Values.global.environment.publicUrls.api | quote }}

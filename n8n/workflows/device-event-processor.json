@@ -1,0 +1,237 @@
+{
+  "name": "HomeGuard Device Event Processor",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "device-event",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Device Event Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "device-event"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-unlock",
+              "leftValue": "={{ $json.event_type }}",
+              "rightValue": "unlock",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "condition-lock",
+              "leftValue": "={{ $json.event_type }}",
+              "rightValue": "lock",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "condition-motion",
+              "leftValue": "={{ $json.event_type }}",
+              "rightValue": "motion_detected",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "filter-security-events",
+      "name": "Security Event?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://iot-notification-service:8080/activity",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"id\": \"n8n-{{ $now.toMillis() }}\",\n  \"timestamp\": \"{{ $now.toISO() }}\",\n  \"source\": \"n8n\",\n  \"icon\": \"{{ $json.event_type === 'unlock' ? '\\uD83D\\uDD13' : $json.event_type === 'lock' ? '\\uD83D\\uDD12' : '\\uD83D\\uDCE1' }}\",\n  \"action\": \"Workflow Processed\",\n  \"details\": \"N8N processed {{ $json.event_type }} event for device {{ $json.device_id }}\",\n  \"user_id\": \"{{ $json.user_id }}\",\n  \"device_id\": \"{{ $json.device_id }}\",\n  \"severity\": \"{{ $json.event_type === 'unlock' ? 'warning' : 'info' }}\"\n}",
+        "options": {}
+      },
+      "id": "publish-activity",
+      "name": "Publish Activity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [690, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-unlock",
+              "leftValue": "={{ $json.event_type }}",
+              "rightValue": "unlock",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-unlock-event",
+      "name": "Is Unlock?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [910, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://iot-notification-service:8080/activity",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"id\": \"n8n-alert-{{ $now.toMillis() }}\",\n  \"timestamp\": \"{{ $now.toISO() }}\",\n  \"source\": \"n8n\",\n  \"icon\": \"\\uD83D\\uDEA8\",\n  \"action\": \"Security Alert\",\n  \"details\": \"Door unlocked! Device: {{ $json.device_id }} - Review access logs\",\n  \"user_id\": \"{{ $json.user_id }}\",\n  \"device_id\": \"{{ $json.device_id }}\",\n  \"severity\": \"alert\"\n}",
+        "options": {}
+      },
+      "id": "security-alert",
+      "name": "Security Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1130, 100]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"processed\",\n  \"event_id\": \"{{ $json.event_id }}\",\n  \"workflow\": \"device-event-processor\",\n  \"timestamp\": \"{{ $now.toISO() }}\"\n}",
+        "options": {}
+      },
+      "id": "respond-success",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1350, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"skipped\",\n  \"event_id\": \"{{ $json.event_id }}\",\n  \"reason\": \"non-security event\",\n  \"timestamp\": \"{{ $now.toISO() }}\"\n}",
+        "options": {}
+      },
+      "id": "respond-skipped",
+      "name": "Respond Skipped",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [690, 400]
+    }
+  ],
+  "connections": {
+    "Device Event Webhook": {
+      "main": [
+        [
+          {
+            "node": "Security Event?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Security Event?": {
+      "main": [
+        [
+          {
+            "node": "Publish Activity",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Activity": {
+      "main": [
+        [
+          {
+            "node": "Is Unlock?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Unlock?": {
+      "main": [
+        [
+          {
+            "node": "Security Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Security Alert": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "instanceId": "homeguard-iot"
+  },
+  "tags": [
+    {
+      "id": "1",
+      "name": "homeguard"
+    },
+    {
+      "id": "2",
+      "name": "iot"
+    }
+  ]
+}

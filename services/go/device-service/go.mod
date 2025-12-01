@@ -3,6 +3,7 @@ module github.com/homeguard/device-service
 go 1.21
 
 require (
+	github.com/IBM/sarama v1.43.0
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/google/uuid v1.5.0
 	github.com/gorilla/mux v1.8.1

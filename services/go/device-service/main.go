@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/IBM/sarama"
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -78,6 +80,8 @@ type Config struct {
 	MongoURL               string
 	MongoDB                string
 	RedisURL               string
+	KafkaBrokers           []string
+	KafkaCommandsTopic     string
 	NotificationServiceURL string
 }
 
@@ -128,21 +132,25 @@ type DeviceCommand struct {
 
 // Service handles device-related operations
 type Service struct {
-	config     *Config
-	client     *mongo.Client
-	db         *mongo.Database
-	devices    *mongo.Collection
-	commands   *mongo.Collection
-	redis      *redis.Client
-	router     *mux.Router
+	config        *Config
+	client        *mongo.Client
+	db            *mongo.Database
+	devices       *mongo.Collection
+	commands      *mongo.Collection
+	redis         *redis.Client
+	kafkaProducer sarama.SyncProducer
+	router        *mux.Router
 }
 
 func loadConfig() *Config {
+	kafkaBrokers := getEnv("KAFKA_BROKERS", "iot-kafka.sandbox:9092")
 	return &Config{
 		Port:                   getEnv("PORT", "8080"),
 		MongoURL:               getEnv("MONGO_URL", "mongodb://root:homeguard-mongo-2024@mongodb.homeguard-data:27017/homeguard?authSource=admin"),
 		MongoDB:                getEnv("MONGO_DB", "homeguard"),
 		RedisURL:               getEnv("REDIS_URL", "redis://iot-redis.sandbox:6379"),
+		KafkaBrokers:           strings.Split(kafkaBrokers, ","),
+		KafkaCommandsTopic:     getEnv("KAFKA_COMMANDS_TOPIC", "device-events"),
 		NotificationServiceURL: getEnv("NOTIFICATION_SERVICE_URL", "http://iot-notification-service.sandbox:8080"),
 	}
 }
@@ -191,14 +199,32 @@ func NewService(config *Config) (*Service, error) {
 		log.Println("Connected to Redis cache")
 	}
 
+	// Connect to Kafka
+	var kafkaProducer sarama.SyncProducer
+	if len(config.KafkaBrokers) > 0 && config.KafkaBrokers[0] != "" {
+		kafkaConfig := sarama.NewConfig()
+		kafkaConfig.Producer.RequiredAcks = sarama.WaitForAll
+		kafkaConfig.Producer.Retry.Max = 3
+		kafkaConfig.Producer.Return.Successes = true
+		kafkaConfig.Net.DialTimeout = 10 * time.Second
+
+		kafkaProducer, err = sarama.NewSyncProducer(config.KafkaBrokers, kafkaConfig)
+		if err != nil {
+			log.Printf("Warning: failed to create Kafka producer: %v - service will run without Kafka", err)
+		} else {
+			log.Printf("Connected to Kafka brokers: %v", config.KafkaBrokers)
+		}
+	}
+
 	service := &Service{
-		config:     config,
-		client:     client,
-		db:         db,
-		devices:    db.Collection("devices"),
-		commands:   db.Collection("device_commands"),
-		redis:      redisClient,
-		router:     mux.NewRouter(),
+		config:        config,
+		client:        client,
+		db:            db,
+		devices:       db.Collection("devices"),
+		commands:      db.Collection("device_commands"),
+		redis:         redisClient,
+		kafkaProducer: kafkaProducer,
+		router:        mux.NewRouter(),
 	}
 
 	// Create indexes
@@ -242,6 +268,47 @@ func (s *Service) invalidateDeviceCache(ctx context.Context, deviceID string) {
 		return
 	}
 	s.redis.Del(ctx, s.deviceCacheKey(deviceID))
+}
+
+// KafkaEvent represents an event to publish to Kafka
+type KafkaEvent struct {
+	ID        string                 `json:"id"`
+	Type      string                 `json:"type"`
+	DeviceID  string                 `json:"device_id"`
+	UserID    string                 `json:"user_id"`
+	Command   string                 `json:"command"`
+	Payload   map[string]interface{} `json:"payload"`
+	Device    *Device                `json:"device,omitempty"`
+	Timestamp time.Time              `json:"timestamp"`
+}
+
+// publishToKafka publishes an event to Kafka
+func (s *Service) publishToKafka(event *KafkaEvent) error {
+	if s.kafkaProducer == nil {
+		log.Printf("[KAFKA] Producer not available, skipping publish for event %s", event.ID)
+		return nil
+	}
+
+	data, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("failed to marshal event: %w", err)
+	}
+
+	msg := &sarama.ProducerMessage{
+		Topic: s.config.KafkaCommandsTopic,
+		Key:   sarama.StringEncoder(event.DeviceID),
+		Value: sarama.ByteEncoder(data),
+	}
+
+	partition, offset, err := s.kafkaProducer.SendMessage(msg)
+	if err != nil {
+		return fmt.Errorf("failed to send message to Kafka: %w", err)
+	}
+
+	log.Printf("[KAFKA] Published event %s to topic %s (partition=%d, offset=%d)",
+		event.ID, s.config.KafkaCommandsTopic, partition, offset)
+
+	return nil
 }
 
 // publishActivity sends an activity event to the notification service
@@ -840,10 +907,28 @@ func (s *Service) sendCommand(w http.ResponseWriter, r *http.Request) {
 			userID, deviceID, "info")
 	}
 
-	// Publish activity: Command queued (simulating Kafka)
-	s.publishActivity("kafka", "📨", "Event Published",
-		fmt.Sprintf("Command '%s' published to Kafka topic 'device-commands'", req.Command),
-		userID, deviceID, "info")
+	// Publish to Kafka for event-processor to consume
+	kafkaEvent := &KafkaEvent{
+		ID:        command.ID,
+		Type:      "device_command",
+		DeviceID:  deviceID,
+		UserID:    userID,
+		Command:   req.Command,
+		Payload:   req.Payload,
+		Device:    &device,
+		Timestamp: time.Now(),
+	}
+
+	if err := s.publishToKafka(kafkaEvent); err != nil {
+		log.Printf("Error publishing to Kafka: %v", err)
+		s.publishActivity("kafka", "❌", "Publish Failed",
+			fmt.Sprintf("Failed to publish command '%s' to Kafka: %v", req.Command, err),
+			userID, deviceID, "warning")
+	} else {
+		s.publishActivity("kafka", "📨", "Event Published",
+			fmt.Sprintf("Command '%s' published to Kafka topic '%s'", req.Command, s.config.KafkaCommandsTopic),
+			userID, deviceID, "info")
+	}
 
 	s.jsonResponse(w, http.StatusAccepted, command)
 }
@@ -1041,6 +1126,9 @@ func main() {
 		}
 		if service.redis != nil {
 			service.redis.Close()
+		}
+		if service.kafkaProducer != nil {
+			service.kafkaProducer.Close()
 		}
 	}()
 

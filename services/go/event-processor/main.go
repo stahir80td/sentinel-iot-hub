@@ -45,14 +45,25 @@ type ActivityEvent struct {
 	Severity  string `json:"severity"`
 }
 
-// DeviceEvent represents an event from a device
+// DeviceInfo represents device metadata in events
+type DeviceInfo struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Location string `json:"location"`
+}
+
+// DeviceEvent represents an event from a device or command event from device-service
 type DeviceEvent struct {
 	ID        string                 `json:"id"`
+	Type      string                 `json:"type"`       // e.g. "device_command"
 	DeviceID  string                 `json:"device_id"`
 	UserID    string                 `json:"user_id"`
-	EventType string                 `json:"event_type"`
+	EventType string                 `json:"event_type"` // legacy field
+	Command   string                 `json:"command"`    // e.g. "unlock", "lock"
 	Timestamp time.Time              `json:"timestamp"`
 	Payload   map[string]interface{} `json:"payload"`
+	Device    *DeviceInfo            `json:"device,omitempty"`
 }
 
 // Metrics
@@ -237,7 +248,16 @@ func (s *Service) processMessage(msg *sarama.ConsumerMessage) error {
 		return fmt.Errorf("failed to unmarshal event: %w", err)
 	}
 
-	log.Printf("Processing event: %s, type: %s, device: %s", event.ID, event.EventType, event.DeviceID)
+	// Determine event type for logging
+	eventType := event.EventType
+	if event.Type != "" {
+		eventType = event.Type
+	}
+	if event.Command != "" {
+		eventType = fmt.Sprintf("%s:%s", event.Type, event.Command)
+	}
+
+	log.Printf("Processing event: %s, type: %s, device: %s", event.ID, eventType, event.DeviceID)
 
 	// Route to appropriate processor based on topic
 	switch msg.Topic {
@@ -253,23 +273,37 @@ func (s *Service) processMessage(msg *sarama.ConsumerMessage) error {
 }
 
 func (s *Service) processDeviceEvent(event DeviceEvent) error {
+	// Determine the event description based on command or event type
+	eventDesc := event.EventType
+	deviceName := event.DeviceID
+	if event.Device != nil && event.Device.Name != "" {
+		deviceName = event.Device.Name
+	}
+	if event.Command != "" {
+		eventDesc = fmt.Sprintf("command '%s'", event.Command)
+	}
+
 	// Publish activity: Kafka received event
-	s.publishActivity("kafka", "📨", "Event Received",
-		fmt.Sprintf("Kafka consumed event: %s from device %s", event.EventType, event.DeviceID),
+	s.publishActivity("processor", "🔄", "Event Processing",
+		fmt.Sprintf("Processing %s from %s", eventDesc, deviceName),
 		event.UserID, event.DeviceID, "info")
 
 	// Store in TimescaleDB for analytics
 	if err := s.storeInTimescaleDB(event); err != nil {
 		log.Printf("Failed to store in TimescaleDB: %v", err)
 	} else {
-		s.publishActivity("timescaledb", "📊", "Event Stored",
-			fmt.Sprintf("TimescaleDB stored event %s for analytics", event.EventType),
+		s.publishActivity("timescaledb", "📊", "Analytics Stored",
+			fmt.Sprintf("Stored %s event for device %s", eventDesc, deviceName),
 			event.UserID, event.DeviceID, "info")
 	}
 
 	// Store in ScyllaDB for fast lookup
 	if err := s.storeInScyllaDB(event); err != nil {
 		log.Printf("Failed to store in ScyllaDB: %v", err)
+	} else {
+		s.publishActivity("scylladb", "🔷", "Event Indexed",
+			fmt.Sprintf("Indexed %s for fast retrieval", eventDesc),
+			event.UserID, event.DeviceID, "info")
 	}
 
 	// Call N8N webhook for workflow automation
@@ -374,16 +408,38 @@ func (s *Service) triggerScenarioEngine(event DeviceEvent) {
 
 // triggerN8NWorkflow sends events to N8N for workflow automation
 func (s *Service) triggerN8NWorkflow(event DeviceEvent) {
-	payload, _ := json.Marshal(map[string]interface{}{
+	// Build N8N payload with all event data
+	n8nPayload := map[string]interface{}{
 		"event_id":   event.ID,
+		"type":       event.Type,
 		"device_id":  event.DeviceID,
 		"user_id":    event.UserID,
 		"event_type": event.EventType,
+		"command":    event.Command,
 		"timestamp":  event.Timestamp,
 		"payload":    event.Payload,
-	})
+	}
 
-	log.Printf("[N8N] Triggering workflow for event: %s, type: %s", event.ID, event.EventType)
+	// Add device info if available
+	if event.Device != nil {
+		n8nPayload["device_name"] = event.Device.Name
+		n8nPayload["device_type"] = event.Device.Type
+		n8nPayload["device_location"] = event.Device.Location
+	}
+
+	payload, _ := json.Marshal(n8nPayload)
+
+	// Determine description for logging
+	eventDesc := event.EventType
+	deviceName := event.DeviceID
+	if event.Device != nil && event.Device.Name != "" {
+		deviceName = event.Device.Name
+	}
+	if event.Command != "" {
+		eventDesc = event.Command
+	}
+
+	log.Printf("[N8N] Triggering workflow for event: %s, command: %s, device: %s", event.ID, event.Command, deviceName)
 
 	go func() {
 		req, _ := http.NewRequest("POST", s.config.N8NWebhookURL, strings.NewReader(string(payload)))
@@ -392,6 +448,9 @@ func (s *Service) triggerN8NWorkflow(event DeviceEvent) {
 		resp, err := s.client.Do(req)
 		if err != nil {
 			log.Printf("[N8N] Failed to trigger workflow: %v", err)
+			s.publishActivity("n8n", "❌", "Workflow Failed",
+				fmt.Sprintf("N8N webhook failed for %s: %v", eventDesc, err),
+				event.UserID, event.DeviceID, "warning")
 			return
 		}
 		defer resp.Body.Close()
@@ -399,10 +458,13 @@ func (s *Service) triggerN8NWorkflow(event DeviceEvent) {
 		if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusAccepted {
 			log.Printf("[N8N] Workflow triggered successfully for event %s", event.ID)
 			s.publishActivity("n8n", "⚙️", "Workflow Triggered",
-				fmt.Sprintf("N8N processing %s event from device %s", event.EventType, event.DeviceID),
+				fmt.Sprintf("N8N processing '%s' for %s", eventDesc, deviceName),
 				event.UserID, event.DeviceID, "info")
 		} else {
 			log.Printf("[N8N] Workflow returned status %d", resp.StatusCode)
+			s.publishActivity("n8n", "⚠️", "Workflow Error",
+				fmt.Sprintf("N8N returned status %d for %s", resp.StatusCode, eventDesc),
+				event.UserID, event.DeviceID, "warning")
 		}
 	}()
 }

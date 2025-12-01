@@ -49,6 +49,16 @@ spec:
                 configMapKeyRef:
                   name: {{ .Values.global.namePrefix }}-apps-config
                   key: NOTIFICATION_SERVICE_URL
+            - name: KAFKA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: KAFKA_BROKERS
+            - name: KAFKA_COMMANDS_TOPIC
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: KAFKA_COMMANDS_TOPIC
           resources:
             {{- toYaml .Values.deviceService.resources | nindent 12 }}
           livenessProbe:
