@@ -6,6 +6,23 @@
   <img src="https://img.shields.io/badge/TypeScript-5.3-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript"/>
 </p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Apache_Kafka-231F20?style=for-the-badge&logo=apache-kafka&logoColor=white" alt="Kafka"/>
+  <img src="https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white" alt="MongoDB"/>
+  <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL"/>
+  <img src="https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white" alt="Redis"/>
+  <img src="https://img.shields.io/badge/TimescaleDB-FDB515?style=for-the-badge&logo=timescale&logoColor=black" alt="TimescaleDB"/>
+  <img src="https://img.shields.io/badge/ScyllaDB-6CD5E7?style=for-the-badge&logo=scylladb&logoColor=black" alt="ScyllaDB"/>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Grafana-F46800?style=for-the-badge&logo=grafana&logoColor=white" alt="Grafana"/>
+  <img src="https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white" alt="Prometheus"/>
+  <img src="https://img.shields.io/badge/n8n-EA4B71?style=for-the-badge&logo=n8n&logoColor=white" alt="n8n"/>
+  <img src="https://img.shields.io/badge/Helm-0F1689?style=for-the-badge&logo=helm&logoColor=white" alt="Helm"/>
+  <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"/>
+</p>
+
 # HomeGuard IoT Platform
 
 A production-grade, cloud-native IoT platform demonstrating **polyglot persistence**, **event-driven architecture**, **microservices patterns**, and **Agentic AI** for intelligent smart home security and automation.
@@ -15,6 +32,7 @@ A production-grade, cloud-native IoT platform demonstrating **polyglot persisten
 ## Table of Contents
 
 - [Overview](#overview)
+- [Screenshots](#screenshots)
 - [Key Features](#key-features)
 - [Architecture](#architecture)
   - [System Architecture](#system-architecture)
@@ -48,6 +66,22 @@ HomeGuard IoT Platform is an enterprise-grade smart home security system that sh
 | Intelligent automation | Google Gemini-powered AI agent with tool calling |
 | Operational visibility | Prometheus + Grafana + structured logging |
 | Cloud-native deployment | Kubernetes + Helm charts with multi-environment support |
+
+---
+
+## Screenshots
+
+### HomeGuard Dashboard with Polyglot Data Flow Panel
+
+The main dashboard shows real-time device status and the **Polyglot Data Flow** panel at the bottom, displaying live events flowing through all layers of the polyglot architecture (N8N Workflow, Kafka, Redis, TimescaleDB, ScyllaDB, Event Processor).
+
+![HomeGuard Dashboard](triaging/home.png)
+
+### Grafana Polyglot Data Flow Dashboard
+
+The Grafana dashboard provides detailed metrics and visualizations for monitoring data flow across all polyglot persistence layers, including event counts, throughput, and activity by source.
+
+![Grafana Polyglot Dashboard](triaging/grafana.png)
 
 ---
 
