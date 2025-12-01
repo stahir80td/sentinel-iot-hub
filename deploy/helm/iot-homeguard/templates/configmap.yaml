@@ -55,3 +55,4 @@ data:
   # Monitoring
   PROMETHEUS_URL: "http://{{ .Values.global.namePrefix }}-prometheus.{{ .Values.global.namespace }}:9090"
   GRAFANA_URL: "http://{{ .Values.global.namePrefix }}-grafana.{{ .Values.global.namespace }}:3000"
+  LOKI_URL: "http://{{ .Values.global.namePrefix }}-loki.{{ .Values.global.namespace }}:3100"

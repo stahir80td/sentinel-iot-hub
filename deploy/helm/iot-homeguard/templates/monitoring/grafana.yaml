@@ -32,6 +32,15 @@ data:
         url: http://{{ .Values.global.namePrefix }}-prometheus.{{ .Values.global.namespace }}:9090
         isDefault: true
         editable: false
+      {{- if .Values.loki.enabled }}
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://{{ .Values.global.namePrefix }}-loki.{{ .Values.global.namespace }}:3100
+        editable: false
+        jsonData:
+          maxLines: 1000
+      {{- end }}
       {{- if .Values.postgresql.enabled }}
       - name: PostgreSQL
         type: postgres

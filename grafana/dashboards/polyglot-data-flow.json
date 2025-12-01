@@ -24,7 +24,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "Loki"
       },
       "gridPos": {
         "h": 4,
@@ -50,7 +50,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "Loki"
       },
       "fieldConfig": {
         "defaults": {
@@ -246,7 +246,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "Loki"
           },
           "editorMode": "code",
           "expr": "sum by (source) (count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\]\" | pattern `<_> source=<source> <_>` [1m]))",
@@ -261,7 +261,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "Loki"
       },
       "fieldConfig": {
         "defaults": {
@@ -305,7 +305,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "Loki"
           },
           "editorMode": "code",
           "expr": "count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\].*source=mongodb\" [5m])",
@@ -320,7 +320,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "Loki"
       },
       "fieldConfig": {
         "defaults": {
@@ -365,7 +365,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "Loki"
           },
           "editorMode": "code",
           "expr": "count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\].*source=redis\" [5m])",
@@ -380,7 +380,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "Loki"
       },
       "fieldConfig": {
         "defaults": {
@@ -425,7 +425,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "Loki"
           },
           "editorMode": "code",
           "expr": "count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\].*source=kafka\" [5m])",
@@ -440,7 +440,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "Loki"
       },
       "fieldConfig": {
         "defaults": {
@@ -485,7 +485,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "Loki"
           },
           "editorMode": "code",
           "expr": "count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\].*source=timescaledb\" [5m])",
@@ -500,7 +500,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "Loki"
       },
       "fieldConfig": {
         "defaults": {
@@ -545,7 +545,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "Loki"
           },
           "editorMode": "code",
           "expr": "count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\].*source=scylladb\" [5m])",
@@ -560,7 +560,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "Loki"
       },
       "fieldConfig": {
         "defaults": {
@@ -605,7 +605,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "Loki"
           },
           "editorMode": "code",
           "expr": "count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\].*source=n8n\" [5m])",
@@ -620,7 +620,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "Loki"
       },
       "fieldConfig": {
         "defaults": {
@@ -788,7 +788,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "Loki"
           },
           "editorMode": "code",
           "expr": "sum by (source) (count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\]\" | pattern `<_> source=<source> <_>` [15m]))",
@@ -803,7 +803,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "Loki"
       },
       "fieldConfig": {
         "defaults": {
@@ -850,7 +850,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "Loki"
           },
           "editorMode": "code",
           "expr": "sum by (action) (count_over_time({app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\]\" | pattern `<_> action=<action> <_>` [15m]))",
@@ -865,7 +865,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "Prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -941,7 +941,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "Prometheus"
           },
           "editorMode": "code",
           "expr": "sum(rate(activity_events_published_total[1m])) by (source)",
@@ -956,7 +956,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "Loki"
       },
       "gridPos": {
         "h": 12,
@@ -979,7 +979,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "Loki"
           },
           "editorMode": "code",
           "expr": "{app=~\"iot-.*\"} |~ \"\\\\[ACTIVITY\\\\]\" | pattern `<timestamp> <_> source=<source> action=<action> details=<details> user=<user> device=<device> severity=<severity>`",
@@ -994,7 +994,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "Prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1116,7 +1116,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "Prometheus"
           },
           "editorMode": "code",
           "expr": "sum(rate(device_commands_total[1m])) by (command)",
@@ -1131,7 +1131,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "Prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1207,7 +1207,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "Prometheus"
           },
           "editorMode": "code",
           "expr": "sum(rate(device_operations_total[1m])) by (operation)",
@@ -1222,7 +1222,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "Prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1275,7 +1275,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "Prometheus"
           },
           "editorMode": "code",
           "expr": "device_cache_hits_total / (device_cache_hits_total + device_cache_misses_total)",
@@ -1290,7 +1290,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "Prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1336,7 +1336,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "Prometheus"
           },
           "editorMode": "code",
           "expr": "device_cache_hits_total",
@@ -1351,7 +1351,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "Prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1397,7 +1397,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "Prometheus"
           },
           "editorMode": "code",
           "expr": "device_cache_misses_total",
@@ -1412,7 +1412,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "Prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1458,7 +1458,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "Prometheus"
           },
           "editorMode": "code",
           "expr": "sum(event_processor_events_processed_total)",

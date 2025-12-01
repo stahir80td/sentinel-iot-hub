@@ -170,6 +170,30 @@ prometheus:
     size: 2Gi
   retention: 15d
 
+# Loki - Log aggregation
+loki:
+  enabled: true
+  image: grafana/loki:2.9.4
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  storage:
+    size: 2Gi
+  retention: 168h  # 7 days
+  promtail:
+    image: grafana/promtail:2.9.4
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+
 # Grafana - Dashboards
 grafana:
   enabled: true
