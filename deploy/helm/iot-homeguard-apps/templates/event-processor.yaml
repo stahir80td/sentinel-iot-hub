@@ -67,6 +67,11 @@ spec:
                 configMapKeyRef:
                   name: {{ .Values.global.namePrefix }}-apps-config
                   key: SCYLLA_HOSTS
+            - name: N8N_WEBHOOK_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: N8N_WEBHOOK_URL
           resources:
             {{- toYaml .Values.eventProcessor.resources | nindent 12 }}
           livenessProbe:

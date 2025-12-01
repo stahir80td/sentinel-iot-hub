@@ -32,3 +32,6 @@ data:
 
   # AI Configuration
   GEMINI_TEXT_MODEL: {{ .Values.agenticAi.geminiModel | quote }}
+
+  # N8N Workflow Automation
+  N8N_WEBHOOK_URL: "http://{{ .Values.global.infrastructure.n8n.host }}.{{ .Values.global.namespace }}:{{ .Values.global.infrastructure.n8n.port }}{{ .Values.global.infrastructure.n8n.webhookPath }}"

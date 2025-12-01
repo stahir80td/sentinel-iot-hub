@@ -123,11 +123,11 @@ export default function AIAssistant() {
   }
 
   const suggestedQuestions = [
+    'Unlock front door',
     'What devices are online?',
     'Turn off all lights',
     'Create an automation for motion detection',
     'Show me the analytics for today',
-    'What is the status of my front door?',
   ]
 
   return (

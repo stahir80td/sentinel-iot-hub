@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
@@ -55,6 +58,15 @@ type RateLimiter struct {
 	b        int
 }
 
+// WebSocket upgrader
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow all origins for development
+	},
+}
+
 // Metrics for Prometheus
 var (
 	httpRequestsTotal = prometheus.NewCounterVec(
@@ -78,12 +90,19 @@ var (
 			Help: "Number of active connections",
 		},
 	)
+	wsActivityConnections = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "api_gateway_ws_activity_connections",
+			Help: "Number of active WebSocket activity stream connections",
+		},
+	)
 )
 
 func init() {
 	prometheus.MustRegister(httpRequestsTotal)
 	prometheus.MustRegister(httpRequestDuration)
 	prometheus.MustRegister(activeConnections)
+	prometheus.MustRegister(wsActivityConnections)
 }
 
 func loadConfig() *Config {
@@ -179,6 +198,11 @@ func (g *Gateway) SetupRoutes() {
 	// Device ingestion (device-token auth, not user JWT)
 	g.router.HandleFunc("/api/v1/ingest/{path:.*}", g.deviceAuthMiddleware(g.proxyHandler(g.config.DeviceIngestURL))).Methods("POST")
 
+	// WebSocket routes - registered directly on main router to avoid middleware wrapping ResponseWriter
+	// These handlers do their own auth via Sec-WebSocket-Protocol header
+	g.router.HandleFunc("/api/activity/stream", g.activityStreamHandler).Methods("GET")
+	g.router.HandleFunc("/api/v1/activity/stream", g.activityStreamHandler).Methods("GET")
+
 	// Protected routes (require JWT) - support both /api and /api/v1 prefixes
 	apiV1 := g.router.PathPrefix("/api/v1").Subrouter()
 	apiV1.Use(g.authMiddleware)
@@ -223,8 +247,12 @@ func (g *Gateway) SetupRoutes() {
 		r.HandleFunc("/scenarios/{id}/enable", g.proxyHandler(g.config.ScenarioEngineURL)).Methods("POST")
 		r.HandleFunc("/scenarios/{id}/disable", g.proxyHandler(g.config.ScenarioEngineURL)).Methods("POST")
 
-		// WebSocket for real-time updates
+		// Activity stream routes (non-WebSocket)
+		r.HandleFunc("/activity/recent", g.proxyHandler(g.config.NotificationServiceURL)).Methods("GET")
+
+		// General WebSocket endpoint
 		r.HandleFunc("/ws", g.websocketHandler).Methods("GET")
+		// Note: /activity/stream is registered directly on main router to avoid middleware ResponseWriter wrapping
 	}
 }
 
@@ -268,15 +296,33 @@ func (g *Gateway) readinessCheck(w http.ResponseWriter, r *http.Request) {
 
 func (g *Gateway) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var tokenString string
+
+		// First, try Authorization header
 		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			g.errorResponse(w, http.StatusUnauthorized, "Missing authorization header")
-			return
+		if authHeader != "" {
+			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+			if tokenString == authHeader {
+				g.errorResponse(w, http.StatusUnauthorized, "Invalid authorization format")
+				return
+			}
 		}
 
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		if tokenString == authHeader {
-			g.errorResponse(w, http.StatusUnauthorized, "Invalid authorization format")
+		// For WebSocket connections, also check Sec-WebSocket-Protocol header
+		// Browser WebSocket API uses subprotocol for auth: new WebSocket(url, ['Bearer', token])
+		if tokenString == "" {
+			wsProtocol := r.Header.Get("Sec-WebSocket-Protocol")
+			if wsProtocol != "" {
+				// Format: "Bearer, <token>" - browser joins subprotocols with ", "
+				parts := strings.Split(wsProtocol, ", ")
+				if len(parts) == 2 && parts[0] == "Bearer" {
+					tokenString = parts[1]
+				}
+			}
+		}
+
+		if tokenString == "" {
+			g.errorResponse(w, http.StatusUnauthorized, "Missing authorization header")
 			return
 		}
 
@@ -383,9 +429,151 @@ func (g *Gateway) proxyHandler(targetURL string) http.HandlerFunc {
 }
 
 func (g *Gateway) websocketHandler(w http.ResponseWriter, r *http.Request) {
-	// WebSocket handling will be implemented with gorilla/websocket
-	// For now, return a placeholder
-	g.errorResponse(w, http.StatusNotImplemented, "WebSocket endpoint - coming soon")
+	// General WebSocket endpoint for future use
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade error: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	// Keep connection alive with pings
+	for {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+	}
+}
+
+// activityStreamHandler proxies WebSocket connections to the notification service activity stream
+// This handler does its own auth because it's registered directly on the main router to avoid ResponseWriter wrapping
+func (g *Gateway) activityStreamHandler(w http.ResponseWriter, r *http.Request) {
+	// Authenticate via Sec-WebSocket-Protocol header (browser WebSocket sends token as subprotocol)
+	wsProtocol := r.Header.Get("Sec-WebSocket-Protocol")
+	if wsProtocol == "" {
+		g.errorResponse(w, http.StatusUnauthorized, "Missing authentication")
+		return
+	}
+
+	// Parse "Bearer, <token>" format
+	var tokenString string
+	parts := strings.Split(wsProtocol, ", ")
+	if len(parts) == 2 && parts[0] == "Bearer" {
+		tokenString = parts[1]
+	}
+	if tokenString == "" {
+		g.errorResponse(w, http.StatusUnauthorized, "Invalid authentication format")
+		return
+	}
+
+	// Validate JWT token
+	claims := &Claims{}
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(g.config.JWTSecret), nil
+	})
+	if err != nil || !token.Valid {
+		g.errorResponse(w, http.StatusUnauthorized, "Invalid or expired token")
+		return
+	}
+
+	userID := claims.UserID
+
+	// Parse the notification service URL
+	targetURL, err := url.Parse(g.config.NotificationServiceURL)
+	if err != nil {
+		log.Printf("Error parsing notification service URL: %v", err)
+		g.errorResponse(w, http.StatusInternalServerError, "Configuration error")
+		return
+	}
+
+	// Build the WebSocket URL for the notification service
+	wsScheme := "ws"
+	if targetURL.Scheme == "https" {
+		wsScheme = "wss"
+	}
+	backendURL := fmt.Sprintf("%s://%s/activity/stream/%s", wsScheme, targetURL.Host, userID)
+
+	log.Printf("[ACTIVITY] Proxying WebSocket for user %s to %s", userID, backendURL)
+
+	// IMPORTANT: Upgrade client connection FIRST before any other operations
+	// The http.ResponseWriter must not be used before upgrading, otherwise Hijacker fails
+	// For subprotocol auth, browser sends "Bearer, <token>" but we must respond with just "Bearer"
+	var responseHeader http.Header
+	if wsProtocol := r.Header.Get("Sec-WebSocket-Protocol"); wsProtocol != "" {
+		responseHeader = http.Header{}
+		// Only respond with the protocol name, not the token
+		parts := strings.Split(wsProtocol, ", ")
+		if len(parts) >= 1 {
+			responseHeader.Set("Sec-WebSocket-Protocol", parts[0])
+		}
+	}
+	clientConn, err := upgrader.Upgrade(w, r, responseHeader)
+	if err != nil {
+		log.Printf("Client WebSocket upgrade error: %v", err)
+		return
+	}
+	defer clientConn.Close()
+
+	wsActivityConnections.Inc()
+	defer wsActivityConnections.Dec()
+
+	// Now connect to backend WebSocket
+	backendConn, resp, err := websocket.DefaultDialer.Dial(backendURL, nil)
+	if err != nil {
+		if resp != nil {
+			body, _ := io.ReadAll(resp.Body)
+			log.Printf("Backend WebSocket connection failed: %v, status: %d, body: %s", err, resp.StatusCode, string(body))
+		} else {
+			log.Printf("Backend WebSocket connection failed: %v", err)
+		}
+		clientConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "Failed to connect to activity stream"))
+		return
+	}
+	defer backendConn.Close()
+
+	log.Printf("[ACTIVITY] WebSocket connection established for user %s", userID)
+
+	// Proxy messages between client and backend
+	done := make(chan struct{})
+
+	// Backend to client
+	go func() {
+		defer close(done)
+		for {
+			messageType, message, err := backendConn.ReadMessage()
+			if err != nil {
+				log.Printf("[ACTIVITY] Backend read error: %v", err)
+				return
+			}
+			if err := clientConn.WriteMessage(messageType, message); err != nil {
+				log.Printf("[ACTIVITY] Client write error: %v", err)
+				return
+			}
+		}
+	}()
+
+	// Client to backend (for pings/pongs)
+	go func() {
+		for {
+			messageType, message, err := clientConn.ReadMessage()
+			if err != nil {
+				log.Printf("[ACTIVITY] Client read error: %v", err)
+				backendConn.Close()
+				return
+			}
+			if err := backendConn.WriteMessage(messageType, message); err != nil {
+				log.Printf("[ACTIVITY] Backend write error: %v", err)
+				return
+			}
+		}
+	}()
+
+	<-done
+	log.Printf("[ACTIVITY] WebSocket connection closed for user %s", userID)
 }
 
 func (g *Gateway) errorResponse(w http.ResponseWriter, status int, message string) {
@@ -426,6 +614,14 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+// Hijack implements http.Hijacker interface for WebSocket support
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hijacker, ok := rw.ResponseWriter.(http.Hijacker); ok {
+		return hijacker.Hijack()
+	}
+	return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
 }
 
 func main() {

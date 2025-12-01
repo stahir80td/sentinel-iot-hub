@@ -29,6 +29,20 @@ type Config struct {
 	Topics             []string
 	NotificationURL    string
 	ScenarioEngineURL  string
+	N8NWebhookURL      string
+}
+
+// ActivityEvent for publishing to the activity stream
+type ActivityEvent struct {
+	ID        string `json:"id"`
+	Timestamp string `json:"timestamp"`
+	Source    string `json:"source"`
+	Icon      string `json:"icon"`
+	Action    string `json:"action"`
+	Details   string `json:"details"`
+	UserID    string `json:"user_id"`
+	DeviceID  string `json:"device_id,omitempty"`
+	Severity  string `json:"severity"`
 }
 
 // DeviceEvent represents an event from a device
@@ -115,8 +129,9 @@ func loadConfig() *Config {
 		ScyllaDBHosts:     strings.Split(scyllaHosts, ","),
 		ConsumerGroup:     getEnv("CONSUMER_GROUP", "event-processor"),
 		Topics:            strings.Split(topics, ","),
-		NotificationURL:   getEnv("NOTIFICATION_SERVICE_URL", "http://notification-service:8080"),
-		ScenarioEngineURL: getEnv("SCENARIO_ENGINE_URL", "http://scenario-engine:8080"),
+		NotificationURL:   getEnv("NOTIFICATION_SERVICE_URL", "http://iot-notification-service:8080"),
+		ScenarioEngineURL: getEnv("SCENARIO_ENGINE_URL", "http://iot-scenario-engine:8080"),
+		N8NWebhookURL:     getEnv("N8N_WEBHOOK_URL", "http://iot-n8n:5678/webhook/device-event"),
 	}
 }
 
@@ -238,15 +253,27 @@ func (s *Service) processMessage(msg *sarama.ConsumerMessage) error {
 }
 
 func (s *Service) processDeviceEvent(event DeviceEvent) error {
+	// Publish activity: Kafka received event
+	s.publishActivity("kafka", "📨", "Event Received",
+		fmt.Sprintf("Kafka consumed event: %s from device %s", event.EventType, event.DeviceID),
+		event.UserID, event.DeviceID, "info")
+
 	// Store in TimescaleDB for analytics
 	if err := s.storeInTimescaleDB(event); err != nil {
 		log.Printf("Failed to store in TimescaleDB: %v", err)
+	} else {
+		s.publishActivity("timescaledb", "📊", "Event Stored",
+			fmt.Sprintf("TimescaleDB stored event %s for analytics", event.EventType),
+			event.UserID, event.DeviceID, "info")
 	}
 
 	// Store in ScyllaDB for fast lookup
 	if err := s.storeInScyllaDB(event); err != nil {
 		log.Printf("Failed to store in ScyllaDB: %v", err)
 	}
+
+	// Call N8N webhook for workflow automation
+	s.triggerN8NWorkflow(event)
 
 	// Trigger scenario engine for automation rules
 	s.triggerScenarioEngine(event)
@@ -255,6 +282,11 @@ func (s *Service) processDeviceEvent(event DeviceEvent) error {
 }
 
 func (s *Service) processAlert(event DeviceEvent) error {
+	// Publish activity: Alert received
+	s.publishActivity("kafka", "🚨", "Alert Received",
+		fmt.Sprintf("Alert from device %s: %s", event.DeviceID, event.EventType),
+		event.UserID, event.DeviceID, "alert")
+
 	// Store the alert
 	if err := s.storeInScyllaDB(event); err != nil {
 		log.Printf("Failed to store alert in ScyllaDB: %v", err)
@@ -262,6 +294,9 @@ func (s *Service) processAlert(event DeviceEvent) error {
 
 	// Send notification
 	s.sendNotification(event)
+
+	// Trigger N8N for alert workflow
+	s.triggerN8NWorkflow(event)
 
 	// Trigger scenario engine for alert-based automations
 	s.triggerScenarioEngine(event)
@@ -335,6 +370,72 @@ func (s *Service) triggerScenarioEngine(event DeviceEvent) {
 		return
 	}
 	defer resp.Body.Close()
+}
+
+// triggerN8NWorkflow sends events to N8N for workflow automation
+func (s *Service) triggerN8NWorkflow(event DeviceEvent) {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"event_id":   event.ID,
+		"device_id":  event.DeviceID,
+		"user_id":    event.UserID,
+		"event_type": event.EventType,
+		"timestamp":  event.Timestamp,
+		"payload":    event.Payload,
+	})
+
+	log.Printf("[N8N] Triggering workflow for event: %s, type: %s", event.ID, event.EventType)
+
+	go func() {
+		req, _ := http.NewRequest("POST", s.config.N8NWebhookURL, strings.NewReader(string(payload)))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := s.client.Do(req)
+		if err != nil {
+			log.Printf("[N8N] Failed to trigger workflow: %v", err)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusAccepted {
+			log.Printf("[N8N] Workflow triggered successfully for event %s", event.ID)
+			s.publishActivity("n8n", "⚙️", "Workflow Triggered",
+				fmt.Sprintf("N8N processing %s event from device %s", event.EventType, event.DeviceID),
+				event.UserID, event.DeviceID, "info")
+		} else {
+			log.Printf("[N8N] Workflow returned status %d", resp.StatusCode)
+		}
+	}()
+}
+
+// publishActivity sends activity events to the notification service for the activity stream
+func (s *Service) publishActivity(source, icon, action, details, userID, deviceID, severity string) {
+	activity := ActivityEvent{
+		ID:        fmt.Sprintf("act-%d", time.Now().UnixNano()),
+		Timestamp: time.Now().Format(time.RFC3339),
+		Source:    source,
+		Icon:      icon,
+		Action:    action,
+		Details:   details,
+		UserID:    userID,
+		DeviceID:  deviceID,
+		Severity:  severity,
+	}
+
+	log.Printf("[ACTIVITY] source=%s action=%s details=%s user=%s device=%s severity=%s",
+		source, action, details, userID, deviceID, severity)
+
+	go func() {
+		data, _ := json.Marshal(activity)
+		req, _ := http.NewRequest("POST", s.config.NotificationURL+"/activity", strings.NewReader(string(data)))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := s.client.Do(req)
+		if err != nil {
+			log.Printf("[ACTIVITY] Failed to publish: %v", err)
+			return
+		}
+		defer resp.Body.Close()
+	}()
 }
 
 func (s *Service) jsonResponse(w http.ResponseWriter, status int, data interface{}) {

@@ -48,7 +48,7 @@ imageRegistry:
 # Minimal resources for local development + image tags
 apiGateway:
   image: "api-gateway"
-  tag: "v2"
+  tag: "latest"
   resources:
     requests:
       cpu: 25m
@@ -70,7 +70,7 @@ userService:
 
 deviceService:
   image: "device-service"
-  tag: "v3"
+  tag: "latest"
   resources:
     requests:
       cpu: 25m
@@ -125,7 +125,7 @@ scenarioEngine:
 
 agenticAi:
   image: "agentic-ai"
-  tag: "v6"
+  tag: "latest"
   geminiApiKey: ""
   resources:
     requests:
@@ -137,7 +137,7 @@ agenticAi:
 
 frontend:
   image: "frontend"
-  tag: "v4"
+  tag: "latest"
   resources:
     requests:
       cpu: 25m

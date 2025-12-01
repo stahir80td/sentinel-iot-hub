@@ -44,6 +44,11 @@ spec:
                 configMapKeyRef:
                   name: {{ .Values.global.namePrefix }}-apps-config
                   key: REDIS_URL
+            - name: NOTIFICATION_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.global.namePrefix }}-apps-config
+                  key: NOTIFICATION_SERVICE_URL
           resources:
             {{- toYaml .Values.deviceService.resources | nindent 12 }}
           livenessProbe:

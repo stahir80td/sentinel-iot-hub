@@ -42,13 +42,17 @@ global:
     scylladb:
       host: "iot-scylladb"
       port: 9042
+    n8n:
+      host: "iot-n8n"
+      port: 5678
+      webhookPath: "/webhook/device-event"
 
 # Image registry configuration
 imageRegistry:
   # For local: use local images
   # For dv1/prod: use artifactory
   registry: ""
-  prefix: "homeguard"
+  prefix: "iot"
 
 # Application Services
 apiGateway:

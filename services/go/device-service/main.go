@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -25,12 +27,71 @@ const (
 	deviceStatusCacheTTL = 15 * time.Second
 )
 
+// Prometheus metrics
+var (
+	deviceCommands = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "device_commands_total",
+			Help: "Total number of device commands sent",
+		},
+		[]string{"command", "device_type"},
+	)
+	deviceOperations = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "device_operations_total",
+			Help: "Total number of device operations",
+		},
+		[]string{"operation"},
+	)
+	activityEventsPublished = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "activity_events_published_total",
+			Help: "Total number of activity events published",
+		},
+		[]string{"source"},
+	)
+	cacheHits = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "device_cache_hits_total",
+			Help: "Total number of cache hits",
+		},
+	)
+	cacheMisses = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "device_cache_misses_total",
+			Help: "Total number of cache misses",
+		},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(deviceCommands)
+	prometheus.MustRegister(deviceOperations)
+	prometheus.MustRegister(activityEventsPublished)
+	prometheus.MustRegister(cacheHits)
+	prometheus.MustRegister(cacheMisses)
+}
+
 // Config holds the application configuration
 type Config struct {
-	Port     string
-	MongoURL string
-	MongoDB  string
-	RedisURL string
+	Port                   string
+	MongoURL               string
+	MongoDB                string
+	RedisURL               string
+	NotificationServiceURL string
+}
+
+// ActivityEvent represents an activity event for the activity stream
+type ActivityEvent struct {
+	ID        string    `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	Source    string    `json:"source"`
+	Icon      string    `json:"icon"`
+	Action    string    `json:"action"`
+	Details   string    `json:"details"`
+	UserID    string    `json:"user_id"`
+	DeviceID  string    `json:"device_id,omitempty"`
+	Severity  string    `json:"severity"`
 }
 
 // Device represents an IoT device
@@ -78,10 +139,11 @@ type Service struct {
 
 func loadConfig() *Config {
 	return &Config{
-		Port:     getEnv("PORT", "8080"),
-		MongoURL: getEnv("MONGO_URL", "mongodb://root:homeguard-mongo-2024@mongodb.homeguard-data:27017/homeguard?authSource=admin"),
-		MongoDB:  getEnv("MONGO_DB", "homeguard"),
-		RedisURL: getEnv("REDIS_URL", "redis://iot-redis.sandbox:6379"),
+		Port:                   getEnv("PORT", "8080"),
+		MongoURL:               getEnv("MONGO_URL", "mongodb://root:homeguard-mongo-2024@mongodb.homeguard-data:27017/homeguard?authSource=admin"),
+		MongoDB:                getEnv("MONGO_DB", "homeguard"),
+		RedisURL:               getEnv("REDIS_URL", "redis://iot-redis.sandbox:6379"),
+		NotificationServiceURL: getEnv("NOTIFICATION_SERVICE_URL", "http://iot-notification-service.sandbox:8080"),
 	}
 }
 
@@ -182,6 +244,51 @@ func (s *Service) invalidateDeviceCache(ctx context.Context, deviceID string) {
 	s.redis.Del(ctx, s.deviceCacheKey(deviceID))
 }
 
+// publishActivity sends an activity event to the notification service
+func (s *Service) publishActivity(source, icon, action, details, userID, deviceID, severity string) {
+	event := ActivityEvent{
+		ID:        uuid.New().String(),
+		Timestamp: time.Now(),
+		Source:    source,
+		Icon:      icon,
+		Action:    action,
+		Details:   details,
+		UserID:    userID,
+		DeviceID:  deviceID,
+		Severity:  severity,
+	}
+
+	// Log for Grafana/Loki
+	log.Printf("[ACTIVITY] source=%s action=%s details=%s user=%s device=%s severity=%s",
+		source, action, details, userID, deviceID, severity)
+
+	// Send to notification service asynchronously
+	go func() {
+		data, err := json.Marshal(event)
+		if err != nil {
+			log.Printf("Error marshaling activity event: %v", err)
+			return
+		}
+
+		resp, err := http.Post(
+			s.config.NotificationServiceURL+"/activity",
+			"application/json",
+			bytes.NewReader(data),
+		)
+		if err != nil {
+			log.Printf("Error publishing activity: %v", err)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+			log.Printf("Activity publish returned status: %d", resp.StatusCode)
+		} else {
+			activityEventsPublished.WithLabelValues(source).Inc()
+		}
+	}()
+}
+
 func (s *Service) createIndexes(ctx context.Context) error {
 	// Device indexes
 	deviceIndexes := []mongo.IndexModel{
@@ -270,11 +377,14 @@ func (s *Service) listDevices(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			var response map[string]interface{}
 			if json.Unmarshal([]byte(cached), &response) == nil {
-				log.Printf("Cache hit for devices list: %s", cacheKey)
+				log.Printf("[CACHE] HIT key=%s", cacheKey)
+				cacheHits.Inc()
 				s.jsonResponse(w, http.StatusOK, response)
 				return
 			}
 		}
+		log.Printf("[CACHE] MISS key=%s", cacheKey)
+		cacheMisses.Inc()
 	}
 
 	filter := bson.M{"user_id": userID}
@@ -367,6 +477,15 @@ func (s *Service) createDevice(w http.ResponseWriter, r *http.Request) {
 	// Invalidate user's device list cache
 	s.invalidateUserDeviceCache(ctx, userID)
 
+	// Publish activity events
+	deviceOperations.WithLabelValues("create").Inc()
+	s.publishActivity("mongodb", "📦", "Device Created",
+		fmt.Sprintf("New %s device '%s' registered in MongoDB", device.Type, device.Name),
+		userID, device.ID, "info")
+	s.publishActivity("redis", "🗑️", "Cache Invalidated",
+		fmt.Sprintf("Device list cache cleared for user after adding '%s'", device.Name),
+		userID, device.ID, "info")
+
 	s.jsonResponse(w, http.StatusCreated, device)
 }
 
@@ -450,6 +569,16 @@ func (s *Service) updateDevice(w http.ResponseWriter, r *http.Request) {
 	var device Device
 	s.devices.FindOne(ctx, filter).Decode(&device)
 	device.Token = ""
+
+	// Publish activity events
+	deviceOperations.WithLabelValues("update").Inc()
+	s.publishActivity("mongodb", "📝", "Device Updated",
+		fmt.Sprintf("Device '%s' configuration updated in MongoDB", device.Name),
+		userID, deviceID, "info")
+	s.publishActivity("redis", "🗑️", "Cache Invalidated",
+		fmt.Sprintf("Cache cleared for device '%s'", device.Name),
+		userID, deviceID, "info")
+
 	s.jsonResponse(w, http.StatusOK, device)
 }
 
@@ -505,6 +634,13 @@ func (s *Service) patchDevice(w http.ResponseWriter, r *http.Request) {
 	var device Device
 	s.devices.FindOne(ctx, filter).Decode(&device)
 	device.Token = ""
+
+	// Publish activity events
+	deviceOperations.WithLabelValues("patch").Inc()
+	s.publishActivity("mongodb", "📝", "Device Patched",
+		fmt.Sprintf("Device '%s' partially updated in MongoDB", device.Name),
+		userID, deviceID, "info")
+
 	s.jsonResponse(w, http.StatusOK, device)
 }
 
@@ -537,6 +673,15 @@ func (s *Service) deleteDevice(w http.ResponseWriter, r *http.Request) {
 	// Invalidate caches
 	s.invalidateUserDeviceCache(ctx, userID)
 	s.invalidateDeviceCache(ctx, deviceID)
+
+	// Publish activity events
+	deviceOperations.WithLabelValues("delete").Inc()
+	s.publishActivity("mongodb", "🗑️", "Device Removed",
+		fmt.Sprintf("Device '%s' deleted from MongoDB", deviceID),
+		userID, deviceID, "warning")
+	s.publishActivity("redis", "🗑️", "Cache Invalidated",
+		"Device cache entries removed",
+		userID, deviceID, "info")
 
 	s.jsonResponse(w, http.StatusOK, map[string]string{"message": "Device deleted"})
 }
@@ -626,6 +771,52 @@ func (s *Service) sendCommand(w http.ResponseWriter, r *http.Request) {
 		configUpdate["config.mode"] = "disarmed"
 	}
 
+	// Generate human-readable action description
+	var actionDesc, stateDesc string
+	var icon string
+	switch req.Command {
+	case "turn_on":
+		actionDesc = "Power On"
+		stateDesc = fmt.Sprintf("Device '%s' powered on", device.Name)
+		icon = "💡"
+	case "turn_off":
+		actionDesc = "Power Off"
+		stateDesc = fmt.Sprintf("Device '%s' powered off", device.Name)
+		icon = "🔌"
+	case "set_brightness":
+		actionDesc = "Brightness Changed"
+		stateDesc = fmt.Sprintf("Device '%s' brightness set to %v%%", device.Name, req.Payload["brightness"])
+		icon = "🔆"
+	case "set_temperature":
+		actionDesc = "Temperature Set"
+		stateDesc = fmt.Sprintf("Device '%s' temperature set to %v°F", device.Name, req.Payload["temperature"])
+		icon = "🌡️"
+	case "lock":
+		actionDesc = "Door Locked"
+		stateDesc = fmt.Sprintf("Smart lock '%s' is now LOCKED", device.Name)
+		icon = "🔒"
+	case "unlock":
+		actionDesc = "Door Unlocked"
+		stateDesc = fmt.Sprintf("Smart lock '%s' is now UNLOCKED", device.Name)
+		icon = "🔓"
+	case "arm":
+		actionDesc = "Alarm Armed"
+		stateDesc = fmt.Sprintf("Alarm '%s' has been armed", device.Name)
+		icon = "🚨"
+	case "disarm":
+		actionDesc = "Alarm Disarmed"
+		stateDesc = fmt.Sprintf("Alarm '%s' has been disarmed", device.Name)
+		icon = "✅"
+	default:
+		actionDesc = "Command Executed"
+		stateDesc = fmt.Sprintf("Command '%s' sent to device '%s'", req.Command, device.Name)
+		icon = "⚙️"
+	}
+
+	// Publish activity: Device command received
+	deviceCommands.WithLabelValues(req.Command, device.Type).Inc()
+	s.publishActivity("device", icon, actionDesc, stateDesc, userID, deviceID, "info")
+
 	if len(configUpdate) > 0 {
 		configUpdate["updated_at"] = time.Now()
 		configUpdate["last_seen"] = time.Now()
@@ -633,12 +824,26 @@ func (s *Service) sendCommand(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("Error updating device config: %v", err)
 		}
+
+		// Publish activity: MongoDB updated
+		s.publishActivity("mongodb", "📝", "State Persisted",
+			fmt.Sprintf("Device state saved to MongoDB for '%s'", device.Name),
+			userID, deviceID, "info")
+
 		// Invalidate caches after command updates device
 		s.invalidateUserDeviceCache(ctx, userID)
 		s.invalidateDeviceCache(ctx, deviceID)
+
+		// Publish activity: Redis cache invalidated
+		s.publishActivity("redis", "🗑️", "Cache Invalidated",
+			fmt.Sprintf("Redis cache cleared for device '%s'", device.Name),
+			userID, deviceID, "info")
 	}
 
-	// TODO: Publish command to Kafka for actual device to pick up
+	// Publish activity: Command queued (simulating Kafka)
+	s.publishActivity("kafka", "📨", "Event Published",
+		fmt.Sprintf("Command '%s' published to Kafka topic 'device-commands'", req.Command),
+		userID, deviceID, "info")
 
 	s.jsonResponse(w, http.StatusAccepted, command)
 }
