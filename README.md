@@ -83,6 +83,20 @@ The Grafana dashboard provides detailed metrics and visualizations for monitorin
 
 ![Grafana Polyglot Dashboard](triaging/grafana.png)
 
+### N8N Workflow Automation
+
+N8N handles workflow automation triggered by device events from Kafka. The workflow receives events via webhook from the Event Processor, then:
+
+1. **Device Event Webhook** - Receives device command events (unlock, lock, arm, etc.)
+2. **Security Event Check** - Determines if the event is security-related
+3. **Publish Activity** - Posts activity to the notification service for real-time UI updates
+4. **Is Unlock Check** - For security events, checks if it's an unlock command
+5. **Security Alert** - Sends security alerts for sensitive operations like door unlocks
+
+This enables extensible automation - you can add notifications, integrations with external services, or custom business logic without modifying microservice code.
+
+![N8N Workflow](triaging/n8n.png)
+
 ---
 
 ## Key Features
