@@ -336,6 +336,81 @@ The platform employs a **polyglot persistence** architecture, selecting the opti
 
 ---
 
+### Command Processing Flow
+
+When a user issues a command (e.g., "unlock the front door"), the following polyglot data flow is triggered:
+
+```
+                              ┌─────────────────────────────────────────────────────────────┐
+                              │                   COMMAND PROCESSING FLOW                    │
+                              └─────────────────────────────────────────────────────────────┘
+
+   User Command                          Device Service                        Event Processor
+       │                                      │                                      │
+       ▼                                      ▼                                      ▼
+┌─────────────┐    HTTP    ┌─────────────────────────────────┐    Kafka    ┌─────────────────┐
+│    User     │───────────▶│         API Gateway             │            │     Event       │
+│  (Frontend) │            │                                 │            │    Processor    │
+└─────────────┘            └─────────────┬───────────────────┘            └────────┬────────┘
+                                         │                                         │
+                                         ▼                                         │
+                           ┌─────────────────────────────────┐                     │
+                           │        Device Service           │                     │
+                           │                                 │                     │
+                           │  ┌───────────┐ ┌─────────────┐  │                     │
+                           │  │  MongoDB  │ │    Redis    │  │                     │
+                           │  │  (State)  │ │   (Cache)   │  │                     │
+                           │  └───────────┘ └─────────────┘  │                     │
+                           │              │                  │                     │
+                           │              ▼                  │                     │
+                           │  ┌─────────────────────────┐    │                     │
+                           │  │     Kafka Producer      │    │                     │
+                           │  │   (device-events topic) │    │                     │
+                           │  └───────────┬─────────────┘    │                     │
+                           └──────────────┼──────────────────┘                     │
+                                          │                                        │
+                                          └────────────────────────────────────────┤
+                                                                                   │
+                                                                                   ▼
+                                                              ┌─────────────────────────────────┐
+                                                              │        Event Processor          │
+                                                              │                                 │
+                                                              │  ┌───────────┐ ┌─────────────┐  │
+                                                              │  │TimescaleDB│ │  ScyllaDB   │  │
+                                                              │  │(Analytics)│ │  (Events)   │  │
+                                                              │  └───────────┘ └─────────────┘  │
+                                                              │              │                  │
+                                                              │              ▼                  │
+                                                              │  ┌─────────────────────────┐    │
+                                                              │  │      N8N Webhook        │    │
+                                                              │  │  (Workflow Automation)  │    │
+                                                              │  └───────────┬─────────────┘    │
+                                                              └──────────────┼──────────────────┘
+                                                                             │
+                                                                             ▼
+                                                              ┌─────────────────────────────────┐
+                                                              │       Activity Stream           │
+                                                              │     (WebSocket → Frontend)      │
+                                                              └─────────────────────────────────┘
+```
+
+**Simplified Flow:**
+```
+User Command → API Gateway → Device Service → Kafka → Event Processor → N8N Webhook
+                                   │                        │
+                              MongoDB                  TimescaleDB + ScyllaDB
+                                   │
+                                Redis
+```
+
+This architecture ensures:
+- **Decoupled processing**: Kafka enables async event handling
+- **Multi-database persistence**: Each database optimized for its workload
+- **Workflow automation**: N8N triggers custom automations on events
+- **Real-time visibility**: Activity stream shows data flowing through the polyglot stack
+
+---
+
 ### AI/ML Pipeline
 
 ```
